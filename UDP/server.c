@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -7,62 +8,98 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
+typedef struct HashEntry {
+    struct sockaddr_in addr;
+    struct HashEntry *next;
+} HashEntry;
 
-typedef struct ListNode {
-    struct ListNode *next;
-    struct ListNode *prev;
-    struct sockaddr addr;
-} ListNode;
-
-typedef struct List {
+typedef struct HashTable {
     u_int32_t size;
-    struct ListNode *head;
-    struct ListNode *tail;
-} List;
+    u_int32_t elements;
 
+    HashEntry **entries;
+} HashTable;
 
-List *list_init() {
-    ListNode *head = (ListNode *)calloc(1, sizeof(ListNode));
-    ListNode *tail = (ListNode *)calloc(1, sizeof(ListNode));
+HashTable *ht_init() {
+    HashEntry **entries = (HashEntry **)calloc(100, sizeof(HashEntry *));
 
-    head->next = tail;
-    head->prev = NULL;
+    HashTable *ht = (HashTable *)calloc(1, sizeof(HashTable));
+    ht->size = 100;
+    ht->elements = 0;
+    ht->entries = entries;
 
-    tail->next = NULL;
-    tail-> prev = head;
-
-    List *list = (List *)calloc(1, sizeof(List));
-    list->size = 0;
-    list->head = head;
-    list->tail = tail;
-
-    return list;
+    return ht;
 }
 
-void list_insert(List *list, struct sockaddr addr) {
-    ListNode *newNode = (ListNode *)calloc(1, sizeof(ListNode));
-    newNode->addr= addr;
+uint32_t hash(in_addr_t addr, in_port_t port) {
+    uint32_t hostAddr = ntohl(addr);
+    u_int16_t hostPort = ntohs(port);
 
-    ListNode *head = list->head;
-    ListNode *tail = list->tail;
-
-    ListNode *temp = tail->prev;
-    temp->next = newNode;
-    newNode->prev = temp;
-    newNode->next = tail;
-    tail->prev = newNode;
+    return (hostAddr ^ hostPort);
 }
 
-void list_free(List *list) {
-    puts("Freeing List of IP addresses");
-    ListNode *curr = list->head;
+void ht_insert(HashTable *ht, struct sockaddr_in addr) {
+    u_int32_t index = hash(addr.sin_addr.s_addr, addr.sin_port) % ht->size;
+
+    HashEntry *newEntry = (HashEntry *)calloc(1, sizeof(HashEntry));
+    newEntry->addr = addr;
+    newEntry->next = ht->entries[index];
+
+    ht->entries[index] = newEntry;
+    ht->elements++;
+}
+
+HashEntry *ht_find(HashTable *ht, struct sockaddr_in addr) {
+    u_int32_t index = hash(addr.sin_addr.s_addr, addr.sin_port) % ht->size;
+
+    HashEntry *curr = ht->entries[index];
     while(curr != NULL) {
-        ListNode *next = curr->next;
-        free(curr);
-        curr = next;
+        if(curr->addr.sin_addr.s_addr == addr.sin_addr.s_addr && curr->addr.sin_port == addr.sin_port) {
+            return curr;
+        }
+        curr = curr->next;
     }
 
-    free(list);
+    return NULL;
+}
+
+void ht_remove(HashTable *ht, struct sockaddr_in addr) {
+    u_int32_t index = hash(addr.sin_addr.s_addr, addr.sin_port) % ht->size;
+
+    HashEntry *prev = NULL;
+    HashEntry *curr = ht->entries[index];
+    while(curr != NULL) {
+        if(curr->addr.sin_addr.s_addr == addr.sin_addr.s_addr && curr->addr.sin_port == addr.sin_port) {
+
+            if(prev == NULL) {
+                ht->entries[index] = curr->next;
+            } else {
+                prev->next = curr->next;
+            }
+
+            free(curr);
+            ht->elements--;
+            return;
+        }
+
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
+void ht_free(HashTable *ht) {
+    for(int i = 0; i < ht->size; i++) {
+        HashEntry *curr = ht->entries[i];
+        while(curr != NULL) {
+            HashEntry *next = curr->next;
+            free(curr);
+
+            curr = next;
+        }
+    }
+
+    free(ht->entries);
+    free(ht);
 }
 
 
@@ -86,6 +123,7 @@ int main(int argc, char *argv[]) {
     myAddr.sin_family = AF_INET;
     myAddr.sin_port = htons(PORT);
     inet_pton(AF_INET, "192.168.50.20", &(myAddr.sin_addr));
+
 
 
     // Bind the socket's address
