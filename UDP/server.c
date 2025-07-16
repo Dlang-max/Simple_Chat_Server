@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -117,15 +118,21 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+
     char buffer[MAX_SIZE];
-    while (true) {
-        recvfrom(socketFD, buffer, MAX_SIZE, int flags, (struct sockaddr *) &myAddr, sizeof(myAddr));
-    }
+    char clientIP[INET_ADDRSTRLEN];
+    struct sockaddr_in clientAddr;
+    socklen_t clientSize = sizeof(clientAddr);
+    puts("Waiting for connection\n");
+    
+    ssize_t bytes = 0;
+    printf("Bytes received: %ld\n", bytes = recvfrom(socketFD, buffer, MAX_SIZE - 1,
+                                0, (struct sockaddr *) &clientAddr, &clientSize));
+    buffer[bytes] = '\0';
+    printf("Received: %s --- From %s:%d\n", buffer, inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN), ntohs(clientAddr.sin_port));
 
-
-
-
-
+    char *serverMessage = "Hello from Server";
+    sendto(socketFD, serverMessage, strlen(serverMessage), 0, (struct sockaddr *) &clientAddr, clientSize);
 
 
 
