@@ -8,103 +8,87 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-typedef struct HashEntry {
+typedef struct ListNode {
+    struct ListNode *next;
+    struct ListNode *prev;
+
     struct sockaddr_in addr;
-    struct HashEntry *next;
-} HashEntry;
+} ListNode;
 
-typedef struct HashTable {
+typedef struct List {
     u_int32_t size;
-    u_int32_t elements;
+    struct ListNode *head;
+    struct ListNode *tail;
+} List;
 
-    HashEntry **entries;
-} HashTable;
+List *list_init() {
+    ListNode *head = calloc(1, sizeof(ListNode));
+    ListNode *tail = calloc(1, sizeof(ListNode));
 
-HashTable *ht_init() {
-    HashEntry **entries = (HashEntry **)calloc(100, sizeof(HashEntry *));
+    head->next = tail;
+    tail ->prev = tail;
 
-    HashTable *ht = (HashTable *)calloc(1, sizeof(HashTable));
-    ht->size = 100;
-    ht->elements = 0;
-    ht->entries = entries;
+    List *list = calloc(1, sizeof(List));
+    list->size = 0;
+    list->head = head;
+    list->tail = tail;
 
-    return ht;
+    return list;
 }
 
-uint32_t hash(in_addr_t addr, in_port_t port) {
-    uint32_t hostAddr = ntohl(addr);
-    u_int16_t hostPort = ntohs(port);
-
-    return (hostAddr ^ hostPort);
-}
-
-void ht_insert(HashTable *ht, struct sockaddr_in addr) {
-    u_int32_t index = hash(addr.sin_addr.s_addr, addr.sin_port) % ht->size;
-
-    HashEntry *newEntry = (HashEntry *)calloc(1, sizeof(HashEntry));
-    newEntry->addr = addr;
-    newEntry->next = ht->entries[index];
-
-    ht->entries[index] = newEntry;
-    ht->elements++;
-}
-
-HashEntry *ht_find(HashTable *ht, struct sockaddr_in addr) {
-    u_int32_t index = hash(addr.sin_addr.s_addr, addr.sin_port) % ht->size;
-
-    HashEntry *curr = ht->entries[index];
+void list_free(List *list) {
+    ListNode *curr = list->head;
     while(curr != NULL) {
-        if(curr->addr.sin_addr.s_addr == addr.sin_addr.s_addr && curr->addr.sin_port == addr.sin_port) {
+        ListNode *next = curr->next;
+
+        free(curr);
+        curr = next;
+    }
+
+    free(list);
+}
+
+void list_add(List *list, struct sockaddr_in addr) {
+    ListNode *prev = list->tail->prev;
+    ListNode *next = list->tail;
+
+    ListNode *newNode = calloc(1, sizeof(ListNode));
+    newNode->addr = addr;
+
+    prev->next = newNode;
+    newNode->prev = prev;
+    newNode->next = next;
+    next->prev = newNode;
+    list->size++;
+}
+
+void list_remove(List *list, struct sockaddr_in addr) {
+    for(ListNode *curr = list->head->next; curr != list->tail; curr = curr->next) {
+        struct sockaddr_in nodeAddr = curr->addr;
+        if(nodeAddr.sin_addr.s_addr == addr.sin_addr.s_addr && nodeAddr.sin_port == addr.sin_port) {
+            ListNode *prev = curr->prev;
+            ListNode *next = curr->next;
+
+            prev->next = next;
+            next->prev = prev;
+
+            free(curr);
+            list->size--;
+            return;
+        }
+    }
+}
+
+ListNode *list_get(List *list, struct sockaddr_in addr) {
+    for(ListNode *curr = list->head->next; curr != list->tail; curr = curr->next) {
+        struct sockaddr_in nodeAddr = curr->addr;
+        if(nodeAddr.sin_addr.s_addr == addr.sin_addr.s_addr && nodeAddr.sin_port == addr.sin_port) {
             return curr;
         }
-        curr = curr->next;
     }
 
     return NULL;
 }
-
-void ht_remove(HashTable *ht, struct sockaddr_in addr) {
-    u_int32_t index = hash(addr.sin_addr.s_addr, addr.sin_port) % ht->size;
-
-    HashEntry *prev = NULL;
-    HashEntry *curr = ht->entries[index];
-    while(curr != NULL) {
-        if(curr->addr.sin_addr.s_addr == addr.sin_addr.s_addr && curr->addr.sin_port == addr.sin_port) {
-
-            if(prev == NULL) {
-                ht->entries[index] = curr->next;
-            } else {
-                prev->next = curr->next;
-            }
-
-            free(curr);
-            ht->elements--;
-            return;
-        }
-
-        prev = curr;
-        curr = curr->next;
-    }
-}
-
-void ht_free(HashTable *ht) {
-    for(int i = 0; i < ht->size; i++) {
-        HashEntry *curr = ht->entries[i];
-        while(curr != NULL) {
-            HashEntry *next = curr->next;
-            free(curr);
-
-            curr = next;
-        }
-    }
-
-    free(ht->entries);
-    free(ht);
-}
-
-
-
-
 
 #define PORT 6969
 #define MAX_SIZE 1024
