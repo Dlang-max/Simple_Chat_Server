@@ -123,7 +123,7 @@ int main(int argc, char *argv[]) {
     char clientIP[INET_ADDRSTRLEN];
     struct sockaddr_in clientAddr;
     socklen_t clientSize = sizeof(clientAddr);
-    puts("Waiting for connection\n");
+    puts("Waiting for connection");
     
     ssize_t bytes = 0;
     printf("Bytes received: %ld\n", bytes = recvfrom(socketFD, buffer, MAX_SIZE - 1,

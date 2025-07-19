@@ -1,5 +1,8 @@
 CC := gcc
 
+chat:
+	$(CC) -o chat chat_ui.c
+
 server:
 	$(CC) -o server server.c
 
@@ -9,4 +12,4 @@ client:
 all: server client
 
 clean:
-	rm -f *.o server client
+	rm -f *.o server client chat
