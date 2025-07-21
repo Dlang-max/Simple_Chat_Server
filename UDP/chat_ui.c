@@ -1,7 +1,8 @@
 #include <stdio.h>
 #include <stdbool.h>
-
 #include <ncurses.h>
+
+#include "list.h"
 
 #define INPUT_HEIGHT 3
 #define MAX_MESSAGE_LENGTH 512
@@ -14,8 +15,6 @@
  */
 
 int main(int argc, char *argv[]) {
-    char message[MAX_MESSAGE_LENGTH];
-
     // Initialize ncurses
     initscr();
     cbreak();
@@ -36,6 +35,9 @@ int main(int argc, char *argv[]) {
     box(chatWindow, 0, 0);
     wrefresh(chatWindow);
 
+
+    List *chatList = list_init();
+    char message[MAX_MESSAGE_LENGTH];
     while(true) {
         // Update input window
         werase(inputWindow);
@@ -46,21 +48,19 @@ int main(int argc, char *argv[]) {
         // Get input from user
         wgetnstr(inputWindow, message, MAX_MESSAGE_LENGTH - 1);
 
-        // Update chat history window
+        // Update and print chat history
         werase(chatWindow);
-        box(chatWindow, 0, 0);
+        wmove(chatWindow, 1, 0);
 
-        // I'm going to store chat messages as a LinkedList.
-        // I also want to scroll through chats
-        for(int i = 0; i < 50; i++) {
-            wprintw(chatWindow, " > This is my message number: %d\n", i);
-            box(chatWindow, 0, 0);
+        list_add(chatList, message);
+        ListNode *curr = chatList->head->next;
+        while(curr != chatList->tail) {
+            wprintw(chatWindow, " > ip:time --- %s\n", curr->message);
+            curr = curr->next;
         }
-
-
-
+        box(chatWindow, 0, 0);
         wrefresh(chatWindow);
-
+    
     }
 
     delwin(inputWindow);
