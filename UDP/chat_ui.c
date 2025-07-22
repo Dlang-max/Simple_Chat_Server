@@ -8,10 +8,13 @@
 #define MAX_MESSAGE_LENGTH 512
 
 /* 
- * Want to add commands to control interface: 
+ * 1.) Want to add commands to control interface: 
+ *  -- need to sanitize input to avoid empty messages
  *  -- /disconnect --> disconnect from chat server
  *  -- /connect --> connect to the chat server (connected by default)
  *  -- /quit --> quit the application
+ *
+ * 2.) Want arrow keys and mouse/touchpad to scroll through chat history
  */
 
 int main(int argc, char *argv[]) {

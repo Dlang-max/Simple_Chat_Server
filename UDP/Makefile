@@ -1,7 +1,7 @@
 CC := gcc
 
 chat:
-	$(CC) -o chat chat_ui.c
+	$(CC) -o chat chat_ui.c list.c -lncurses
 
 server:
 	$(CC) -o server server.c
