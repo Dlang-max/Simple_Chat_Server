@@ -16,6 +16,6 @@ typedef struct List {
 } List;
 
 List *list_init();
-void list_fre(List *list);
+void list_free(List *list);
 void list_add(List *list, char *message);
 
