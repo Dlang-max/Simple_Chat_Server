@@ -6,7 +6,6 @@
 #include "list.h"
 
 #define INPUT_HEIGHT 3
-#define MAX_MESSAGE_LENGTH 512
 
 /* 
  * 1.) Want to add commands to control interface: 
@@ -16,6 +15,7 @@
  *  -- /quit --> quit the application
  *
  * 2.) Want arrow keys and mouse/touchpad to scroll through chat history
+ *  -- going to have to capture user input using wgetch
  */
 
 int main(int argc, char *argv[]) {
@@ -51,6 +51,8 @@ int main(int argc, char *argv[]) {
 
         // Get and sanitize input from user
         wgetnstr(inputWindow, message, MAX_MESSAGE_LENGTH - 1);
+        message[MAX_MESSAGE_LENGTH - 1] = '\0';
+
         if(strncmp(message, "", strlen(message)) == 0) {
             continue;
         } else if (strncmp(message, "/quit", strlen("/quit")) == 0) {
