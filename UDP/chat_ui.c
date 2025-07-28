@@ -16,6 +16,9 @@
  *
  * 2.) Want arrow keys and mouse/touchpad to scroll through chat history
  *  -- going to have to capture user input using wgetch
+ *
+ *  3.)
+ *  -- going to implement a gap buffer to handle user input
  */
 
 int main(int argc, char *argv[]) {
