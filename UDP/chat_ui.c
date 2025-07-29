@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <ncurses.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 
@@ -46,6 +47,32 @@ void print_user_input(GapBuffer *gapBuffer, WINDOW *window, int cursorPos, int i
     free(input);
 }
 
+void handle_enter_pressed(GapBuffer *gapBuffer, List *chatList, WINDOW *inputWindow, WINDOW *chatWindow, int *cursorPosPtr, int *inputIndexPtr) {
+    wmove(chatWindow, 1, 0);
+    char *input = get_string(gapBuffer);
+    list_add(chatList, input);
+    ListNode *curr = chatList->head->next;
+    while(curr != chatList->tail) {
+        wprintw(chatWindow, " > ip:time --- %s\n", curr->message);
+        curr = curr->next;
+    }
+
+    box(chatWindow, 0, 0);
+    wrefresh(chatWindow);
+    free(input);
+
+    // Reset input window
+    gap_buffer_free(gapBuffer);
+    gapBuffer = gap_buffer_init();
+    *inputIndexPtr = 0;
+
+    *cursorPosPtr = CURSOR_START_COL;
+    werase(inputWindow);
+    mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
+    box(inputWindow, 0, 0);
+    wrefresh(inputWindow);
+}
+
 int main(int argc, char *argv[]) {
     // Initialize ncurses
     initscr();
@@ -73,9 +100,6 @@ int main(int argc, char *argv[]) {
     box(chatWindow, 0, 0);
     wrefresh(chatWindow);
 
-
-
-
     int inputIndex = 0;
     int cursorPos = CURSOR_START_COL;
     List *chatList = list_init();
@@ -85,93 +109,93 @@ int main(int argc, char *argv[]) {
     mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
     box(inputWindow, 0, 0);
     wrefresh(inputWindow);
-
-    while(true) {
+    
+    bool exitProgram = false;
+    while(!exitProgram) {
         // Get and sanitize input from user
         wmove(inputWindow, CURSOR_START_ROW, cursorPos);
         int c = wgetch(inputWindow);
 
-        if(isprint(c) != 0) {
-            int charsInLeft = inputBuffer->gapStart;
-            int charsInRight = inputBuffer->size - inputBuffer->gapEnd - 1;
-            if(charsInLeft + charsInRight == MAX_MESSAGE_LENGTH) {
-                continue;
-            }
 
-            gap_buffer_insert(inputBuffer, (char)c);
-            if(cursorPos == cursorMaxCol) {
-                inputIndex++;
-                print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
-                continue;
-            }
-
-            print_user_input(inputBuffer, inputWindow, ++cursorPos, inputLength, inputIndex);
-        } else if (c == KEY_BACKSPACE || c == BACKSPACE_KEY_CODE){
-            if(cursorPos == CURSOR_START_COL) {
-                continue;
-            }
-
-            gap_buffer_delete(inputBuffer);
-            if(inputBuffer->strLen > inputLength && inputIndex > 0) {
-                inputIndex--;
-                print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
-                continue;
-            }
-
-            print_user_input(inputBuffer, inputWindow, --cursorPos, inputLength, inputIndex);
-        } else if (c == KEY_LEFT) {
-            if(cursorPos == cursorMinCol) {
-                if(inputIndex > 0) {
-                    move_gap_left(inputBuffer);
+        switch(c) {
+            // Handle user pressing the backspace
+            case KEY_BACKSPACE:
+                if(cursorPos == CURSOR_START_COL) {
+                    continue;
+                }
+                gap_buffer_delete(inputBuffer);
+                if(inputBuffer->strLen > inputLength && inputIndex > 0) {
                     inputIndex--;
                     print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
+                    continue;
                 }
-                continue;
-            }
+                print_user_input(inputBuffer, inputWindow, --cursorPos, inputLength, inputIndex);
+            break;
 
-            move_gap_left(inputBuffer);
-            cursorPos--;
-        } else if (c == KEY_RIGHT) {
-            int charsInLeft = inputBuffer->gapStart;
-            int charsInRight = inputBuffer->size - inputBuffer->gapEnd - 1;
-            if(cursorPos == cursorMaxCol) {
-                if(inputBuffer->strLen - inputIndex > inputLength) {
-                    move_gap_right(inputBuffer);
+            // Handle user pressing the left arrow key
+            case KEY_LEFT:
+                if(cursorPos == cursorMinCol) {
+                    if(inputIndex > 0) {
+                        move_gap_left(inputBuffer);
+                        inputIndex--;
+                        print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
+                    }
+                    continue;
+                }
+                move_gap_left(inputBuffer);
+                cursorPos--;
+            break;
+
+            // Handle user pressing the right arrow key
+            case KEY_RIGHT:
+                int charsInLeft = inputBuffer->gapStart;
+                int charsInRight = inputBuffer->size - inputBuffer->gapEnd - 1;
+                if(cursorPos - cursorMinCol == charsInLeft + charsInRight) {
+                    continue;
+                } else if(cursorPos == cursorMaxCol) {
+                    if(inputBuffer->strLen - inputIndex > inputLength) {
+                        move_gap_right(inputBuffer);
+                        inputIndex++;
+                        print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
+                    }
+                    continue;
+                }
+                move_gap_right(inputBuffer);
+                cursorPos++;
+            break;
+
+            // Handle user pressing enter
+            case ENTER_KEY_CODE:
+                if(inputBuffer->strLen == 0) {
+                    continue;
+                }
+
+                handle_enter_pressed(inputBuffer, chatList, inputWindow, chatWindow, &cursorPos, &inputIndex);
+            break;
+
+            // Handle user pressing escape key 
+            case ESC_KEY_CODE:
+                exitProgram = true;
+            break;
+
+            // Handle user enter text
+            default:
+                if(isprint(c) != 0) {
+                int charsInLeft = inputBuffer->gapStart;
+                int charsInRight = inputBuffer->size - inputBuffer->gapEnd - 1;
+                if(charsInLeft + charsInRight == MAX_MESSAGE_LENGTH) {
+                    continue;
+                }
+
+                gap_buffer_insert(inputBuffer, (char)c);
+                if(cursorPos == cursorMaxCol) {
                     inputIndex++;
                     print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
+                    continue;
                 }
-                continue;
-            }
 
-            move_gap_right(inputBuffer);
-            cursorPos++;
-        } else if (c == KEY_ENTER || c == ENTER_KEY_CODE) {
-            // Update chat history window
-            wmove(chatWindow, 1, 0);
-            char *input = get_string(inputBuffer);
-            list_add(chatList, input);
-            ListNode *curr = chatList->head->next;
-            while(curr != chatList->tail) {
-                wprintw(chatWindow, " > ip:time --- %s\n", curr->message);
-                curr = curr->next;
-            }
-
-            box(chatWindow, 0, 0);
-            wrefresh(chatWindow);
-            free(input);
-
-            // Reset input window
-            gap_buffer_free(inputBuffer);
-            inputBuffer = gap_buffer_init();
-            inputIndex = 0;
-
-            cursorPos = CURSOR_START_COL;
-            werase(inputWindow);
-            mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
-            box(inputWindow, 0, 0);
-            wrefresh(inputWindow);
-        } else if (c == ESC_KEY_CODE) {
-            break;
+                print_user_input(inputBuffer, inputWindow, ++cursorPos, inputLength, inputIndex);
+            } 
         }
     }
 
