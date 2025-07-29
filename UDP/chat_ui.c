@@ -8,9 +8,11 @@
 #include "gap_buffer.h"
 
 #define INPUT_HEIGHT 3
-#define ENTER_KEY_CODE 10
 #define CURSOR_START_ROW 1
 #define CURSOR_START_COL 18
+
+#define ENTER_KEY_CODE 10
+#define BACKSPACE_KEY_CODE 127
 
 /* 
  * 1.) Want to add commands to control interface: 
@@ -49,6 +51,9 @@ int main(int argc, char *argv[]) {
     int height, width;
     getmaxyx(stdscr, height, width);
     int chatHeight = height - INPUT_HEIGHT;
+    int cursorMinCol = CURSOR_START_COL;
+    int cursorMaxCol = width - 1;
+    int maxMessageLength = cursorMaxCol - cursorMinCol;
 
     // Input Window
     WINDOW *inputWindow = newwin(INPUT_HEIGHT, width, height - INPUT_HEIGHT, 0);
@@ -66,7 +71,7 @@ int main(int argc, char *argv[]) {
 
 
 
-
+    int inputIndex = 0;
     int cursorPos = CURSOR_START_COL;
     List *chatList = list_init();
     GapBuffer *inputBuffer = gap_buffer_init();
@@ -90,7 +95,7 @@ int main(int argc, char *argv[]) {
 
             gap_buffer_insert(inputBuffer, (char)c);
             print_user_input(inputBuffer, inputWindow, ++cursorPos);
-        } else if (c == KEY_BACKSPACE || c == 127){
+        } else if (c == KEY_BACKSPACE || c == BACKSPACE_KEY_CODE){
             if(cursorPos == CURSOR_START_COL) {
                 continue;
             }
@@ -99,6 +104,10 @@ int main(int argc, char *argv[]) {
             print_user_input(inputBuffer, inputWindow, --cursorPos);
         } else if (c == KEY_LEFT) {
             if(cursorPos == CURSOR_START_COL) {
+                if(inputIndex > 0) {
+                    move_gap_left(inputBuffer);
+                    inputIndex--;
+                }
                 continue;
             }
 

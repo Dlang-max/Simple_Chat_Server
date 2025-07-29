@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define TEST_INIT_BUFFER_SIZE 5
 #define INIT_BUFFER_SIZE 50
 
 /*
@@ -21,7 +20,9 @@ typedef struct GapBuffer {
     char *buffer;
     int gapStart;
     int gapEnd;
+    int strLen;
 } GapBuffer;
+
 
 GapBuffer *gap_buffer_init();
 void gap_buffer_free(GapBuffer *gapBuffer);
@@ -30,4 +31,4 @@ void move_gap_right(GapBuffer *gapBuffer);
 void gap_buffer_resize(GapBuffer *gapBuffer);
 void gap_buffer_insert(GapBuffer *gapBuffer, char c);
 void gap_buffer_delete(GapBuffer *gapBuffer);
-char *get_string(GapBuffer *gapBuffer); 
+char *get_string(GapBuffer *gapBuffer);

@@ -19,6 +19,7 @@ GapBuffer *gap_buffer_init() {
     gapBuffer->buffer = buffer;
     gapBuffer->gapStart = 0;
     gapBuffer->gapEnd = INIT_BUFFER_SIZE - 1;
+    gapBuffer->strLen = 0;
 
     return gapBuffer;
 }
@@ -77,6 +78,7 @@ void gap_buffer_insert(GapBuffer *gapBuffer, char c) {
     }
 
     gapBuffer->buffer[gapBuffer->gapStart++] = c;
+    gapBuffer->strLen++;
 }
 
 void gap_buffer_delete(GapBuffer *gapBuffer) {
@@ -85,6 +87,7 @@ void gap_buffer_delete(GapBuffer *gapBuffer) {
     }
 
     gapBuffer->buffer[--gapBuffer->gapStart] = '\0';
+    gapBuffer->strLen--;
 }
 
 char *get_string(GapBuffer *gapBuffer) {
