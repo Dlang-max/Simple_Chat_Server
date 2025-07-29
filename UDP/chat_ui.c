@@ -30,11 +30,10 @@
 
 void print_user_input(GapBuffer *gapBuffer, WINDOW *window, int cursorPos) {
     char *input = get_string(gapBuffer);
-
     werase(window);
+    box(window, 0, 0);
     mvwprintw(window, CURSOR_START_ROW, 2, "Enter Message > %s", input);
     wmove(window, CURSOR_START_ROW, cursorPos);
-    box(window, 0, 0);
     wrefresh(window);
 
     free(input);
@@ -142,7 +141,6 @@ int main(int argc, char *argv[]) {
     }
 
     // Cleanup everything
-    // NEED TO ADD CLEANUP OF GAP BUFFER
     list_free(chatList);
     gap_buffer_free(inputBuffer);
     delwin(inputWindow);
