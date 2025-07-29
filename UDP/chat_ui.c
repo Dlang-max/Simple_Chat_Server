@@ -11,6 +11,7 @@
 #define CURSOR_START_ROW 1
 #define CURSOR_START_COL 18
 
+#define ESC_KEY_CODE 27
 #define ENTER_KEY_CODE 10
 #define BACKSPACE_KEY_CODE 127
 
@@ -30,11 +31,15 @@
  *  -- going to implement a gap buffer to handle user input
  */
 
-void print_user_input(GapBuffer *gapBuffer, WINDOW *window, int cursorPos) {
+int min(int a, int b) {
+    return a < b ? a : b;
+}
+
+void print_user_input(GapBuffer *gapBuffer, WINDOW *window, int cursorPos, int inputLength, int inputIndex) {
     char *input = get_string(gapBuffer);
     werase(window);
     box(window, 0, 0);
-    mvwprintw(window, CURSOR_START_ROW, 2, "Enter Message > %s", input);
+    mvwprintw(window, CURSOR_START_ROW, 2, "Enter Message > %.*s", min(gapBuffer->strLen, inputLength), input + inputIndex);
     wmove(window, CURSOR_START_ROW, cursorPos);
     wrefresh(window);
 
@@ -52,8 +57,8 @@ int main(int argc, char *argv[]) {
     getmaxyx(stdscr, height, width);
     int chatHeight = height - INPUT_HEIGHT;
     int cursorMinCol = CURSOR_START_COL;
-    int cursorMaxCol = width - 1;
-    int maxMessageLength = cursorMaxCol - cursorMinCol;
+    int cursorMaxCol = width - 2;
+    int inputLength = cursorMaxCol - cursorMinCol;
 
     // Input Window
     WINDOW *inputWindow = newwin(INPUT_HEIGHT, width, height - INPUT_HEIGHT, 0);
@@ -94,19 +99,32 @@ int main(int argc, char *argv[]) {
             }
 
             gap_buffer_insert(inputBuffer, (char)c);
-            print_user_input(inputBuffer, inputWindow, ++cursorPos);
+            if(cursorPos == cursorMaxCol) {
+                inputIndex++;
+                print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
+                continue;
+            }
+
+            print_user_input(inputBuffer, inputWindow, ++cursorPos, inputLength, inputIndex);
         } else if (c == KEY_BACKSPACE || c == BACKSPACE_KEY_CODE){
             if(cursorPos == CURSOR_START_COL) {
                 continue;
             }
 
             gap_buffer_delete(inputBuffer);
-            print_user_input(inputBuffer, inputWindow, --cursorPos);
+            if(inputBuffer->strLen > inputLength && inputIndex > 0) {
+                inputIndex--;
+                print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
+                continue;
+            }
+
+            print_user_input(inputBuffer, inputWindow, --cursorPos, inputLength, inputIndex);
         } else if (c == KEY_LEFT) {
-            if(cursorPos == CURSOR_START_COL) {
+            if(cursorPos == cursorMinCol) {
                 if(inputIndex > 0) {
                     move_gap_left(inputBuffer);
                     inputIndex--;
+                    print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
                 }
                 continue;
             }
@@ -116,7 +134,12 @@ int main(int argc, char *argv[]) {
         } else if (c == KEY_RIGHT) {
             int charsInLeft = inputBuffer->gapStart;
             int charsInRight = inputBuffer->size - inputBuffer->gapEnd - 1;
-            if(cursorPos == CURSOR_START_COL + charsInLeft + charsInRight) {
+            if(cursorPos == cursorMaxCol) {
+                if(inputBuffer->strLen - inputIndex > inputLength) {
+                    move_gap_right(inputBuffer);
+                    inputIndex++;
+                    print_user_input(inputBuffer, inputWindow, cursorPos, inputLength, inputIndex);
+                }
                 continue;
             }
 
@@ -140,12 +163,15 @@ int main(int argc, char *argv[]) {
             // Reset input window
             gap_buffer_free(inputBuffer);
             inputBuffer = gap_buffer_init();
+            inputIndex = 0;
 
             cursorPos = CURSOR_START_COL;
             werase(inputWindow);
             mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
             box(inputWindow, 0, 0);
             wrefresh(inputWindow);
+        } else if (c == ESC_KEY_CODE) {
+            break;
         }
     }
 
@@ -158,8 +184,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
-
-
-
-
