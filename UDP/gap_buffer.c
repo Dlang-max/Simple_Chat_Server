@@ -89,10 +89,7 @@ void gap_buffer_delete(GapBuffer *gapBuffer) {
 
 char *get_string(GapBuffer *gapBuffer) {
     int charsInLeft = gapBuffer->gapStart;
-    printf("Chars Left: %d\n", charsInLeft);
-
     int charsInRight = gapBuffer->size - gapBuffer->gapEnd - 1;
-    printf("Chars Right: %d\n", charsInRight);
 
     int numCharacters = charsInLeft + charsInRight;
     char *string = calloc(numCharacters + 1, sizeof(char));

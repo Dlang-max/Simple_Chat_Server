@@ -65,7 +65,6 @@ int main(void) {
     printf("%s\n", str);
     free(str);
 
-
     gap_buffer_free(gapBuffer);
 
     return 0;

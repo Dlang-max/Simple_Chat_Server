@@ -1,7 +1,7 @@
 CC := gcc
 
 chat:
-	$(CC) -o chat chat_ui.c list.c gap_buffer.c -lncurses
+	$(CC) -o chat chat_ui.c list.c gap_buffer.c -lncurses && ./chat
 
 test_gap_buffer:
 	$(CC) -o test_gap_buffer gap_buffer.c test_gap_buffer.c && ./test_gap_buffer

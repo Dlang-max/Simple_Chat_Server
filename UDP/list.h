@@ -6,7 +6,7 @@ typedef struct ListNode {
     struct ListNode *next;
     struct ListNode *prev;
 
-    char message[MAX_MESSAGE_LENGTH];
+    char *message;
 } ListNode;
 
 typedef struct List {

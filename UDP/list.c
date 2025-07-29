@@ -20,7 +20,7 @@ void list_free(List *list) {
     ListNode *curr = list->head;
     while(curr != NULL) {
         ListNode *next = curr->next;
-
+        free(curr->message);
         free(curr);
         curr = next;
     }
@@ -32,8 +32,10 @@ void list_add(List *list, char *message) {
     ListNode *prev = list->tail->prev;
     ListNode *next = list->tail;
 
+    int messageLength = strlen(message);
     ListNode *newNode = calloc(1, sizeof(ListNode));
-    strncpy(newNode->message, message, MAX_MESSAGE_LENGTH);
+    newNode->message = calloc(messageLength + 1, sizeof(char));
+    strncpy(newNode->message, message, messageLength);
 
     prev->next = newNode;
     newNode->prev = prev;

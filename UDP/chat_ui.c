@@ -8,6 +8,8 @@
 #include "gap_buffer.h"
 
 #define INPUT_HEIGHT 3
+#define ENTER_KEY_CODE 10
+#define CURSOR_START_ROW 1
 #define CURSOR_START_COL 18
 
 /* 
@@ -26,10 +28,23 @@
  *  -- going to implement a gap buffer to handle user input
  */
 
+void print_user_input(GapBuffer *gapBuffer, WINDOW *window, int cursorPos) {
+    char *input = get_string(gapBuffer);
+
+    werase(window);
+    mvwprintw(window, CURSOR_START_ROW, 2, "Enter Message > %s", input);
+    wmove(window, CURSOR_START_ROW, cursorPos);
+    box(window, 0, 0);
+    wrefresh(window);
+
+    free(input);
+}
+
 int main(int argc, char *argv[]) {
     // Initialize ncurses
     initscr();
     cbreak();
+    noecho();
 
     // Get screen dimensions
     int height, width;
@@ -38,6 +53,7 @@ int main(int argc, char *argv[]) {
 
     // Input Window
     WINDOW *inputWindow = newwin(INPUT_HEIGHT, width, height - INPUT_HEIGHT, 0);
+    keypad(inputWindow, true);
     scrollok(inputWindow, true);
     box(inputWindow, 0, 0);
     wrefresh(inputWindow);
@@ -57,70 +73,80 @@ int main(int argc, char *argv[]) {
     GapBuffer *inputBuffer = gap_buffer_init();
     char message[MAX_MESSAGE_LENGTH];
 
-    mvwprintw(inputWindow, 1, 2, "Enter Message > ");
+    mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
     box(inputWindow, 0, 0);
     wrefresh(inputWindow);
 
     while(true) {
         // Get and sanitize input from user
-        wmove(inputWindow, 1, cursorPos);
+        wmove(inputWindow, CURSOR_START_ROW, cursorPos);
         int c = wgetch(inputWindow);
 
-        if(isprint(c)) {
-            gap_buffer_insert(inputBuffer, (char)c);
-            char *input = get_string(inputBuffer);
-            fprintf(stdout, "%s\n", input);
-            werase(inputWindow);
-            mvwprintw(inputWindow, 1, 2, "Enter Message > %s", input);
-            box(inputWindow, 0, 0);
-            wrefresh(inputWindow);
-            free(input);
+        if(isprint(c) != 0) {
+            int charsInLeft = inputBuffer->gapStart;
+            int charsInRight = inputBuffer->size - inputBuffer->gapEnd - 1;
+            if(charsInLeft + charsInRight == MAX_MESSAGE_LENGTH) {
+                continue;
+            }
 
-        } else if (c == KEY_ENTER) {
-            werase(chatWindow);
+            gap_buffer_insert(inputBuffer, (char)c);
+            print_user_input(inputBuffer, inputWindow, ++cursorPos);
+        } else if (c == KEY_BACKSPACE || c == 127){
+            if(cursorPos == CURSOR_START_COL) {
+                continue;
+            }
+
+            gap_buffer_delete(inputBuffer);
+            print_user_input(inputBuffer, inputWindow, --cursorPos);
+        } else if (c == KEY_LEFT) {
+            if(cursorPos == CURSOR_START_COL) {
+                continue;
+            }
+
+            move_gap_left(inputBuffer);
+            cursorPos--;
+        } else if (c == KEY_RIGHT) {
+            int charsInLeft = inputBuffer->gapStart;
+            int charsInRight = inputBuffer->size - inputBuffer->gapEnd - 1;
+            if(cursorPos == CURSOR_START_COL + charsInLeft + charsInRight) {
+                continue;
+            }
+
+            move_gap_right(inputBuffer);
+            cursorPos++;
+        } else if (c == KEY_ENTER || c == ENTER_KEY_CODE) {
+            // Update chat history window
             wmove(chatWindow, 1, 0);
-            list_add(chatList, message);
+            char *input = get_string(inputBuffer);
+            list_add(chatList, input);
             ListNode *curr = chatList->head->next;
             while(curr != chatList->tail) {
                 wprintw(chatWindow, " > ip:time --- %s\n", curr->message);
                 curr = curr->next;
             }
+
             box(chatWindow, 0, 0);
             wrefresh(chatWindow);
+            free(input);
 
-            
+            // Reset input window
+            gap_buffer_free(inputBuffer);
+            inputBuffer = gap_buffer_init();
+
+            cursorPos = CURSOR_START_COL;
+            werase(inputWindow);
+            mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
+            box(inputWindow, 0, 0);
+            wrefresh(inputWindow);
         }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        //wgetnstr(inputWindow, message, MAX_MESSAGE_LENGTH - 1);
-        //message[MAX_MESSAGE_LENGTH - 1] = '\0';
-/*
-        if(strncmp(message, "", strlen(message)) == 0) {
-            continue;
-        } else if (strncmp(message, "/quit", strlen("/quit")) == 0) {
-            break;
-        }
-*/
-        // Update and print chat history
     }
 
     // Cleanup everything
+    // NEED TO ADD CLEANUP OF GAP BUFFER
     list_free(chatList);
+    gap_buffer_free(inputBuffer);
     delwin(inputWindow);
+    delwin(chatWindow);
     endwin();
 
     return 0;
