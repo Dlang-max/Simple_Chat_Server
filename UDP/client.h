@@ -29,8 +29,8 @@
 
 typedef struct UserInArg {
     int socketFD;
-    pthread_mutex_t *tuiMutex;
     WINDOW *inputWindow;
+    pthread_mutex_t *tuiMutex;
     int width;
     struct sockaddr_in *serverAddr;
 } UserInArg;
@@ -38,6 +38,7 @@ typedef struct UserInArg {
 typedef struct ServerInArg {
     int socketFD;
     WINDOW *chatWindow;
+    pthread_mutex_t *tuiMutex;
 } ServerInArg;
 
 void *handle_server_input(void *arg);
