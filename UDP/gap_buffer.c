@@ -29,6 +29,18 @@ void gap_buffer_free(GapBuffer *gapBuffer) {
     free(gapBuffer);
 }
 
+void gap_buffer_reset(GapBuffer *gapBuffer) {
+    char *buffer = gapBuffer->buffer;
+    free(buffer);
+
+    char *newBuffer = calloc(INIT_BUFFER_SIZE, sizeof(char));
+    gapBuffer->size = INIT_BUFFER_SIZE;
+    gapBuffer->buffer = newBuffer;
+    gapBuffer->gapStart = 0;
+    gapBuffer->gapEnd = INIT_BUFFER_SIZE - 1;
+    gapBuffer->strLen = 0;
+}
+
 void move_gap_left(GapBuffer *gapBuffer) {
     if(gapBuffer->gapStart == 0) {
         return;

@@ -26,6 +26,7 @@ typedef struct GapBuffer {
 
 GapBuffer *gap_buffer_init();
 void gap_buffer_free(GapBuffer *gapBuffer);
+void gap_buffer_reset(GapBuffer *gapBuffer);
 void move_gap_left(GapBuffer *gapBuffer);
 void move_gap_right(GapBuffer *gapBuffer);
 void gap_buffer_resize(GapBuffer *gapBuffer);
