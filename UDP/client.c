@@ -160,7 +160,7 @@ void *handle_user_input(void *arg) {
 
             // Handle user pressing the right arrow key
             case KEY_RIGHT:
-                if(*cursorPosPtr - cursorMinCol == charsInLeft + charsInRight) {
+                if(*cursorPosPtr - cursorMinCol + 1 == charsInLeft + charsInRight) {
                     continue;
                 } 
 
