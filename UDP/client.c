@@ -1,10 +1,7 @@
 #include "client.h"
 #include <bits/pthreadtypes.h>
-#include <ncurses.h>
-#include <netinet/in.h>
+#include <fcntl.h>
 #include <pthread.h>
-#include <stdbool.h>
-#include <sys/socket.h>
 
 void *handle_server_input(void *arg) {
     // Unpack argument passed to function
@@ -14,7 +11,7 @@ void *handle_server_input(void *arg) {
     pthread_mutex_t *tuiMutex = serverArg->tuiMutex;
 
     struct sockaddr_in recvAddr;
-    socklen_t recvSize;
+    socklen_t recvSize = sizeof(recvAddr);
 
     List *chatList = list_init();
     while(true) {
@@ -28,13 +25,16 @@ void *handle_server_input(void *arg) {
         free(message);
 
         ListNode *curr = chatList->head->next;
+        pthread_mutex_lock(tuiMutex);
+        werase(chatWindow);
+        wmove(chatWindow, 1, 0);
         while(curr != chatList->tail) {
-            pthread_mutex_lock(tuiMutex);
             wprintw(chatWindow, " > ip:time --- %s\n", curr->message);
-            pthread_mutex_unlock(tuiMutex);
             curr = curr->next;
         }
+        box(chatWindow, 0, 0);
         wrefresh(chatWindow);
+        pthread_mutex_unlock(tuiMutex);
     }
 }
 
@@ -61,7 +61,7 @@ void send_message_to_server(GapBuffer *gapBuffer, int socketFD, struct sockaddr_
     sendto(socketFD, message, strlen(message), 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
 }
 
-void handle_enter_pressed(GapBuffer *gapBuffer, WINDOW *inputWindow, int *cursorPosPtr, int *inputIndexPtr, int socketFD, struct sockaddr_in *serverAddr) {
+void handle_enter_pressed(GapBuffer *gapBuffer, WINDOW *inputWindow, int *cursorPosPtr, int *inputIndexPtr, pthread_mutex_t *tuiMutex, int socketFD, struct sockaddr_in *serverAddr) {
     // Send the user's message to the server
     send_message_to_server(gapBuffer, socketFD, serverAddr);
 
@@ -70,10 +70,12 @@ void handle_enter_pressed(GapBuffer *gapBuffer, WINDOW *inputWindow, int *cursor
     *cursorPosPtr = CURSOR_START_COL;
     gap_buffer_reset(gapBuffer);
 
+    pthread_mutex_lock(tuiMutex);
     werase(inputWindow);
     mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
     box(inputWindow, 0, 0);
     wrefresh(inputWindow);
+    pthread_mutex_unlock(tuiMutex);
 }
 
 void *handle_user_input(void *arg) {
@@ -90,17 +92,15 @@ void *handle_user_input(void *arg) {
     int inputLength = cursorMaxCol - cursorMinCol;
 
     int inputIndex = 0;
-    int cursorPos = CURSOR_START_COL;
+    int cursorPos = cursorMinCol;
     GapBuffer *inputBuffer = gap_buffer_init();
     while(true) {
         int charsInLeft = inputBuffer->gapStart;
         int charsInRight = inputBuffer->size - inputBuffer->gapEnd - 1;
 
         // Get and sanitize input from user
-        pthread_mutex_lock(tuiMutex);
         wmove(inputWindow, CURSOR_START_ROW, cursorPos);
         int c = wgetch(inputWindow);
-        pthread_mutex_unlock(tuiMutex);
 
         switch(c) {
             // Handle user pressing the backspace
@@ -153,7 +153,7 @@ void *handle_user_input(void *arg) {
                     continue;
                 }
 
-                handle_enter_pressed(inputBuffer, inputWindow, &cursorPos, &inputIndex, socketFD, serverAddr);
+                handle_enter_pressed(inputBuffer, inputWindow, &cursorPos, &inputIndex, tuiMutex, socketFD, serverAddr);
                 break;
 
             // Handle user pressing escape key 

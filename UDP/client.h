@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <bits/pthreadtypes.h>
 #include <ncurses.h>
 
 #include "list.h"
