@@ -32,10 +32,8 @@ void list_add(List *list, char *message) {
     ListNode *prev = list->tail->prev;
     ListNode *next = list->tail;
 
-    int messageLength = strlen(message);
     ListNode *newNode = calloc(1, sizeof(ListNode));
-    newNode->message = calloc(messageLength + 1, sizeof(char));
-    strncpy(newNode->message, message, messageLength);
+    newNode->message = message;
 
     prev->next = newNode;
     newNode->prev = prev;

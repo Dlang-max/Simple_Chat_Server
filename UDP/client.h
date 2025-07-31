@@ -30,16 +30,26 @@
 
 typedef struct UserInArg {
     int socketFD;
-    WINDOW *inputWindow;
-    pthread_mutex_t *tuiMutex;
-    int width;
     struct sockaddr_in *serverAddr;
+    WINDOW *inputWindow;
+    WINDOW *chatWindow;
+    List *chatList;
+    GapBuffer *gapBuffer;
+    int *cursorPosPtr;
+    int *inputIndexPtr;
+    int inputLength;
+    int width;
 } UserInArg;
 
 typedef struct ServerInArg {
     int socketFD;
+    WINDOW *inputWindow;
     WINDOW *chatWindow;
-    pthread_mutex_t *tuiMutex;
+    List *chatList;
+    GapBuffer *gapBuffer;
+    int *cursorPosPtr;
+    int *inputIndexPtr;
+    int inputLength;
 } ServerInArg;
 
 void *handle_server_input(void *arg);
