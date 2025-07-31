@@ -37,8 +37,11 @@ typedef struct UserInArg {
     GapBuffer *gapBuffer;
     int *cursorPosPtr;
     int *inputIndexPtr;
+    int cursorMinCol;
+    int cursorMaxCol;
     int inputLength;
     int width;
+    bool *exitProgramPtr;
 } UserInArg;
 
 typedef struct ServerInArg {
@@ -50,6 +53,7 @@ typedef struct ServerInArg {
     int *cursorPosPtr;
     int *inputIndexPtr;
     int inputLength;
+    bool *exitProgramPtr;
 } ServerInArg;
 
 void *handle_server_input(void *arg);

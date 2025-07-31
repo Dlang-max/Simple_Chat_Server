@@ -14,6 +14,7 @@ void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuff
     pthread_mutex_lock(&tuiMutex);
     // Update chat window
     werase(chatWindow);
+    wmove(chatWindow, 1, 0);
     ListNode *curr = chatList->head->next;
     while(curr != chatList->tail) {
         wprintw(chatWindow, " > ip:time --- %s\n", curr->message);
@@ -45,15 +46,25 @@ void *handle_server_input(void *arg) {
     int *cursorPosPtr = serverArg->cursorPosPtr;
     int *inputIndexPtr = serverArg->cursorPosPtr;
     int inputLength = serverArg->inputLength;
+    bool *exitProgramPtr = serverArg->exitProgramPtr;
 
     struct sockaddr_in recvAddr;
     socklen_t recvSize = sizeof(recvAddr);
 
     while(true) {
+        pthread_mutex_lock(&tuiMutex);
+        if(*exitProgramPtr) {
+            pthread_mutex_unlock(&tuiMutex);
+            return NULL;
+        }
+
+        pthread_mutex_unlock(&tuiMutex);
+
         char *message = calloc(MAX_MESSAGE_LENGTH + 1, sizeof(char));
         message[MAX_MESSAGE_LENGTH] = '\0';
 
         // Block until the server sends us a message
+        // Going to have to set this to non-blocking
         recvfrom(socketFD, message, MAX_MESSAGE_LENGTH, 0, (struct sockaddr *)&recvAddr, &recvSize);
 
         pthread_mutex_lock(&tuiMutex);
@@ -65,20 +76,6 @@ void *handle_server_input(void *arg) {
 }
 
 
-// Can probably get rid of this in a little
-void print_user_input(GapBuffer *gapBuffer, WINDOW *window, int cursorPos, int inputLength, int inputIndex, pthread_mutex_t *tuiMutex) {
-    char *input = get_string(gapBuffer);
-
-    pthread_mutex_lock(tuiMutex);
-    werase(window);
-    box(window, 0, 0);
-    mvwprintw(window, CURSOR_START_ROW, 2, "Enter Message > %.*s", min(gapBuffer->strLen, inputLength), input + inputIndex);
-    wmove(window, CURSOR_START_ROW, cursorPos);
-    wrefresh(window);
-    pthread_mutex_unlock(tuiMutex);
-
-    free(input);
-}
 
 // Going to update this to handle packet types and lengths
 void send_message_to_server(GapBuffer *gapBuffer, int socketFD, struct sockaddr_in *serverAddr) {
@@ -86,21 +83,18 @@ void send_message_to_server(GapBuffer *gapBuffer, int socketFD, struct sockaddr_
     sendto(socketFD, message, strlen(message), 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
 }
 
-void handle_enter_pressed(GapBuffer *gapBuffer, WINDOW *inputWindow, int *cursorPosPtr, int *inputIndexPtr, pthread_mutex_t *tuiMutex, int socketFD, struct sockaddr_in *serverAddr) {
+void handle_enter_pressed(int socketFD, struct sockaddr_in *serverAddr, WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength) {
     // Send the user's message to the server
     send_message_to_server(gapBuffer, socketFD, serverAddr);
 
     // Reset input window
+    pthread_mutex_lock(&tuiMutex);
     *inputIndexPtr = 0;
     *cursorPosPtr = CURSOR_START_COL;
     gap_buffer_reset(gapBuffer);
+    pthread_mutex_unlock(&tuiMutex);
+    update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
 
-    pthread_mutex_lock(tuiMutex);
-    werase(inputWindow);
-    mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
-    box(inputWindow, 0, 0);
-    wrefresh(inputWindow);
-    pthread_mutex_unlock(tuiMutex);
 }
 
 void *handle_user_input(void *arg) {
@@ -114,58 +108,50 @@ void *handle_user_input(void *arg) {
     GapBuffer *gapBuffer = userArg->gapBuffer;
     int *cursorPosPtr = userArg->cursorPosPtr;
     int *inputIndexPtr = userArg->inputIndexPtr;
+    int cursorMinCol = userArg->cursorMinCol;
+    int cursorMaxCol = userArg->cursorMaxCol;
+    int inputLength = userArg->inputLength;
     int width = userArg->width;
+    bool *exitProgramPtr = userArg->exitProgramPtr;
 
-    int cursorMinCol = CURSOR_START_COL;
-    int cursorMaxCol = width - 2;
-    int inputLength = cursorMaxCol - cursorMinCol;
-
-    // Going to move this outside of this function
-    pthread_mutex_lock(&tuiMutex);
-    int inputIndex = 0;
-    int cursorPos = cursorMinCol;
-    pthread_mutex_unlock(&tuiMutex);
-
-    while(true) {
-        pthread_mutex_lock(&tuiMutex);
+    while(!(*exitProgramPtr)) {
         int charsInLeft = gapBuffer->gapStart;
         int charsInRight = gapBuffer->size - gapBuffer->gapEnd - 1;
-        pthread_mutex_unlock(&tuiMutex);
 
         // Get and sanitize input from user
-        wmove(inputWindow, CURSOR_START_ROW, cursorPos);
+        wmove(inputWindow, CURSOR_START_ROW, *cursorPosPtr);
         int c = wgetch(inputWindow);
 
         switch(c) {
             // Handle user pressing the backspace
             case KEY_BACKSPACE:
-                pthread_mutex_lock(&tuiMutex);
-                if(cursorPos == CURSOR_START_COL) {
+                if(*cursorPosPtr == CURSOR_START_COL) {
                     continue;
                 }
+
+                pthread_mutex_lock(&tuiMutex);
                 gap_buffer_delete(gapBuffer);
-                if(gapBuffer->strLen > inputLength && inputIndex > 0) {
-                    inputIndex--;
+                if(gapBuffer->strLen > inputLength && *inputIndexPtr > 0) {
+                    (*inputIndexPtr)--;
                 } else {
-                    cursorPos--;
+                    (*cursorPosPtr)--;
                 }
                 pthread_mutex_unlock(&tuiMutex);
                 update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
                 break;
 
 
-
             // Handle user pressing the left arrow key
             case KEY_LEFT:
-                pthread_mutex_lock(&tuiMutex);
-                if(cursorPos == cursorMinCol && inputIndex == 0) {
+                if(*cursorPosPtr == cursorMinCol && *inputIndexPtr == 0) {
                     continue;
                 }
 
-                if(cursorPos == cursorMinCol) {
-                    inputIndex--;
+                pthread_mutex_lock(&tuiMutex);
+                if(*cursorPosPtr == cursorMinCol) {
+                    (*inputIndexPtr)--;
                 } else {
-                    cursorPos--;
+                    (*cursorPosPtr)--;
                 }
                 move_gap_left(gapBuffer);
                 pthread_mutex_unlock(&tuiMutex);
@@ -174,15 +160,15 @@ void *handle_user_input(void *arg) {
 
             // Handle user pressing the right arrow key
             case KEY_RIGHT:
-                pthread_mutex_lock(&tuiMutex);
-                if(cursorPos - cursorMinCol == charsInLeft + charsInRight) {
+                if(*cursorPosPtr - cursorMinCol == charsInLeft + charsInRight) {
                     continue;
                 } 
 
-                if(cursorPos == cursorMaxCol && gapBuffer->strLen - inputIndex > inputLength) {
-                    inputIndex++;
-                } else if(cursorPos < cursorMaxCol) {
-                    cursorPos++;
+                pthread_mutex_lock(&tuiMutex);
+                if(*cursorPosPtr == cursorMaxCol && gapBuffer->strLen - *inputIndexPtr > inputLength) {
+                    (*inputIndexPtr)++;
+                } else if(*cursorPosPtr < cursorMaxCol) {
+                    (*cursorPosPtr)++;
                 }
                 move_gap_right(gapBuffer);
                 pthread_mutex_unlock(&tuiMutex);
@@ -195,11 +181,14 @@ void *handle_user_input(void *arg) {
                     continue;
                 }
 
-                handle_enter_pressed(gapBuffer, inputWindow, &cursorPos, &inputIndex, tuiMutex, socketFD, serverAddr);
+                handle_enter_pressed(socketFD, serverAddr, inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
                 break;
 
             // Handle user pressing escape key 
             case ESC_KEY_CODE:
+                pthread_mutex_lock(&tuiMutex);
+                *exitProgramPtr = true;
+                pthread_mutex_unlock(&tuiMutex);
             break;
 
             // Handle user enter text
@@ -214,12 +203,12 @@ void *handle_user_input(void *arg) {
 
                 pthread_mutex_lock(&tuiMutex);
                 gap_buffer_insert(gapBuffer, (char)c);
-                if(cursorPos == cursorMaxCol) {
-                    inputIndex++;
+                if(*cursorPosPtr == cursorMaxCol) {
+                    (*inputIndexPtr)++;
                 } else {
-                    cursorPos++;
+                    (*cursorPosPtr)++;
                 }
-                pthread_mutex_lock(&tuiMutex);
+                pthread_mutex_unlock(&tuiMutex);
                 update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
                 break;
         }
@@ -264,23 +253,49 @@ int main(void) {
     serverAddr.sin_port = htons(PORT);
     inet_pton(AF_INET, SERVER_ADDR, &(serverAddr.sin_addr));
 
-    // Initialize mutex to syncronize tui updates
-    pthread_mutex_t tuiMutex;
-    pthread_mutex_init(&tuiMutex, NULL);
+    // Initialize chat list
+    List *chatList = list_init();
+
+    // Initialize gap buffer
+    GapBuffer *gapBuffer = gap_buffer_init();
+
+    // Initialize input buffer variables
+    int cursorMinCol = CURSOR_START_COL;
+    int cursorMaxCol = width - 2;
+    int cursorPos = cursorMinCol;
+    int inputIndex = 0;
+    int inputLength = cursorMaxCol - cursorMinCol;
+
+    // Boolean for whether or not we should exit
+    bool exitProgram = false;
 
     // Pack argument that gets passed to handle_user_input
     UserInArg *userArg = calloc(1, sizeof(UserInArg));
     userArg->socketFD = socketFD;
-    userArg->inputWindow = inputWindow;
-    userArg->tuiMutex = &tuiMutex;
-    userArg->width = width;
     userArg->serverAddr = &serverAddr;
+    userArg->inputWindow = inputWindow;
+    userArg->chatWindow = chatWindow;
+    userArg->chatList = chatList;
+    userArg->gapBuffer = gapBuffer;
+    userArg->cursorPosPtr = &cursorPos;
+    userArg->inputIndexPtr = &inputIndex;
+    userArg->cursorMinCol = cursorMinCol;
+    userArg->cursorMaxCol = cursorMaxCol;
+    userArg->inputLength = inputLength;
+    userArg->width = width;
+    userArg->exitProgramPtr = &exitProgram;
 
     // Pack argument that gets passed to handle_server_input
     ServerInArg *serverArg = calloc(1, sizeof(ServerInArg));
     serverArg->socketFD = socketFD;
+    serverArg->inputWindow = inputWindow;
     serverArg->chatWindow = chatWindow;
-    serverArg->tuiMutex = &tuiMutex;
+    serverArg->chatList = chatList;
+    serverArg->gapBuffer = gapBuffer;
+    serverArg->cursorPosPtr = &cursorPos;
+    serverArg->inputIndexPtr = &inputIndex;
+    serverArg->inputLength = inputLength;
+    serverArg->exitProgramPtr = &exitProgram;
 
     // Initialize pthreads for handling user and server input
     pthread_t userInThread, serverInThread;
@@ -302,6 +317,9 @@ int main(void) {
     delwin(inputWindow);
     delwin(chatWindow);
     endwin();
+
+    list_free(chatList);
+    gap_buffer_free(gapBuffer);
 
     free(userArg);
     free(serverArg);
