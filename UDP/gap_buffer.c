@@ -1,4 +1,5 @@
 #include "gap_buffer.h"
+#include <ncurses.h>
 
 /*
 * Gap Buffer API
@@ -114,4 +115,17 @@ char *get_string(GapBuffer *gapBuffer) {
     memcpy(string + charsInLeft, gapBuffer->buffer + gapBuffer->size - charsInRight, charsInRight);
 
     return string;
+}
+
+void gap_buffer_print(WINDOW *window, GapBuffer *gapBuffer) {
+    for(int i = 0; i < gapBuffer->size; i++) {
+        if(gapBuffer->buffer[i] == '\0') {
+            wprintw(window, "_");
+        } else {
+            wprintw(window, "%c", gapBuffer->buffer[i]);
+        }
+    }
+    wprintw(window, "\n");
+    wrefresh(window);
+
 }

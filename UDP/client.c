@@ -4,7 +4,6 @@
 #include <ncurses.h>
 #include <pthread.h>
 
-
 int min(int a, int b) {
     return a < b ? a : b;
 }
@@ -13,6 +12,7 @@ pthread_mutex_t tuiMutex = PTHREAD_MUTEX_INITIALIZER;
 void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength) {
     pthread_mutex_lock(&tuiMutex);
     // Update chat window
+/*
     werase(chatWindow);
     wmove(chatWindow, 1, 0);
     ListNode *curr = chatList->head->next;
@@ -22,6 +22,7 @@ void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuff
     }
     box(chatWindow, 0, 0);
     wrefresh(chatWindow);
+*/
 
     // Update input window
     werase(inputWindow);
@@ -131,7 +132,7 @@ void *handle_user_input(void *arg) {
 
                 pthread_mutex_lock(&tuiMutex);
                 gap_buffer_delete(gapBuffer);
-                if(gapBuffer->strLen > inputLength && *inputIndexPtr > 0) {
+                if(gapBuffer->strLen >= inputLength && *inputIndexPtr > 0) {
                     (*inputIndexPtr)--;
                 } else {
                     (*cursorPosPtr)--;
@@ -160,6 +161,8 @@ void *handle_user_input(void *arg) {
 
             // Handle user pressing the right arrow key
             case KEY_RIGHT:
+
+
                 if(*cursorPosPtr - cursorMinCol == charsInLeft + charsInRight) {
                     continue;
                 } 
@@ -189,7 +192,7 @@ void *handle_user_input(void *arg) {
                 pthread_mutex_lock(&tuiMutex);
                 *exitProgramPtr = true;
                 pthread_mutex_unlock(&tuiMutex);
-            break;
+                break;
 
             // Handle user enter text
             default:
@@ -237,6 +240,7 @@ int main(void) {
 
     // Initialize Chat Window
     WINDOW *chatWindow = newwin(chatHeight, width, 0, 0);
+    scrollok(chatWindow, true);
     box(chatWindow, 0, 0);
     wrefresh(chatWindow);
 

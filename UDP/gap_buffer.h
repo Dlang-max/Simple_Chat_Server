@@ -1,8 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ncurses.h>
 
-#define INIT_BUFFER_SIZE 50
+#define INIT_BUFFER_SIZE 10
 
 /*
 * Gap Buffer API
@@ -33,3 +34,4 @@ void gap_buffer_resize(GapBuffer *gapBuffer);
 void gap_buffer_insert(GapBuffer *gapBuffer, char c);
 void gap_buffer_delete(GapBuffer *gapBuffer);
 char *get_string(GapBuffer *gapBuffer);
+void gap_buffer_print(WINDOW *window, GapBuffer *gapBuffer);
