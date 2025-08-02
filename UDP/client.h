@@ -16,9 +16,14 @@
 #include "list.h"
 #include "gap_buffer.h"
 
+#define BITS_IN_BYTE 8
+
 #define PORT 6969
 #define MAX_MESSAGE_SIZE 256
 #define SERVER_ADDR "192.168.50.20"
+
+#define PACKET_TYPE_BITS 4
+#define PACKET_LEN_BITS 12
 
 #define INPUT_HEIGHT 3
 #define CURSOR_START_ROW 1

@@ -3,6 +3,20 @@
 #include <fcntl.h>
 #include <ncurses.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
+#include <uchar.h>
+/*
+* Packet structure:
+* |___|_________|_________..._____
+*   |      |       v
+*   |      v       packet data
+*   v      9 bits for packet size
+*   3 bits for packet version
+*
+*/
+
 
 int min(int a, int b) {
     return a < b ? a : b;
@@ -12,7 +26,6 @@ pthread_mutex_t tuiMutex = PTHREAD_MUTEX_INITIALIZER;
 void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength) {
     pthread_mutex_lock(&tuiMutex);
     // Update chat window
-/*
     werase(chatWindow);
     wmove(chatWindow, 1, 0);
     ListNode *curr = chatList->head->next;
@@ -22,7 +35,6 @@ void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuff
     }
     box(chatWindow, 0, 0);
     wrefresh(chatWindow);
-*/
 
     // Update input window
     werase(inputWindow);
@@ -79,14 +91,36 @@ void *handle_server_input(void *arg) {
 
 
 // Going to update this to handle packet types and lengths
-void send_message_to_server(GapBuffer *gapBuffer, int socketFD, struct sockaddr_in *serverAddr) {
-    char *message = get_string(gapBuffer);
-    sendto(socketFD, message, strlen(message), 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
+void send_message_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t packetType, GapBuffer *gapBuffer) {
+    char *payload = get_string(gapBuffer);
+    int payloadBytes = gapBuffer->strLen;
+    int payloadHeaderBytes = (PACKET_TYPE_BITS + PACKET_LEN_BITS) / 2;
+    int totalBytes = payloadBytes + payloadHeaderBytes;
+    uint8_t *packet = calloc(totalBytes, sizeof(uint8_t));
+
+    // Pack packet type
+    u_int8_t firstByte = 0;
+    firstByte |= (uint8_t)((packetType & 0x0F) << 4);
+
+    // Pack packet length
+    firstByte |= (uint8_t)((payloadBytes & 0xF00) >> 8);
+    packet[0] = firstByte;
+    packet[1] = (uint8_t)(payloadBytes & 0xFF);
+
+    // Pack packet message
+    memcpy(packet + payloadHeaderBytes, payload, payloadBytes);
+
+    // Send packet to server
+    sendto(socketFD, packet, totalBytes, 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
+
+    free(packet);
+    free(payload);
 }
 
 void handle_enter_pressed(int socketFD, struct sockaddr_in *serverAddr, WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength) {
     // Send the user's message to the server
-    send_message_to_server(gapBuffer, socketFD, serverAddr);
+    // 2 is a placeholder -- I want to implement packet types
+    send_message_to_server(socketFD, serverAddr, 2, gapBuffer);
 
     // Reset input window
     pthread_mutex_lock(&tuiMutex);
