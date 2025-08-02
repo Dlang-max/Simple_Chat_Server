@@ -70,7 +70,7 @@ char *parse_message_packet(char *packet, int payloadLength) {
 }
 
 char *parse_received_packet(char *packet, int payloadLength) {
-    int packetType = (packet[0] & SERVER_PACKET_TYPE_MASK) >> 4;
+    int packetType = (packet[0] & UNPACK_PACKET_TYPE_MASK) >> 4;
     switch(packetType) {
         case MESSAGE_PACKET_ID:
             char *message = parse_message_packet(packet, payloadLength);
@@ -112,7 +112,7 @@ int main(void) {
         // Receive UDP packets from clients
         recvfrom(socketFD, packet, MAX_PACKET_LENGTH, 0, (struct sockaddr *)&clientAddr, &clientAddrSize);
 
-        int payloadLength = (packet[0] & SERVER_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
+        int payloadLength = (packet[0] & UNPACK_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
         payloadLength |= packet[1];
         char *message = parse_received_packet(packet, payloadLength);
 

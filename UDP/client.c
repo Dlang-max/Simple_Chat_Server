@@ -1,5 +1,4 @@
 #include "./headers/client.h"
-
 /*
 * Packet structure:
 * |____|____________|_________..._____
@@ -9,7 +8,6 @@
 *   4 bits for packet version
 *
 */
-
 
 int min(int a, int b) {
     return a < b ? a : b;
@@ -42,6 +40,31 @@ void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuff
     pthread_mutex_unlock(&tuiMutex);
 }
 
+char *parse_message_packet(char *packet, int payloadLength) {
+    int messageLength = min(MAX_MESSAGE_LENGTH, payloadLength);
+    char *message = calloc(messageLength + 1, sizeof(char));
+    message[messageLength] = '\0';
+
+    memcpy(message, packet + PACKET_HEADER_BYTES, messageLength);
+
+    return message;
+}
+
+char *parse_received_packet(char *packet, int payloadLength) {
+    int packetType = (packet[0] & UNPACK_PACKET_TYPE_MASK) >> 4;
+    switch(packetType) {
+        case MESSAGE_PACKET_ID:
+            char *message = parse_message_packet(packet, payloadLength);
+            return message;
+            break;
+        default:
+            break;
+
+    }
+
+    return NULL;
+}
+
 void *handle_server_input(void *arg) {
     // Unpack argument passed to function
     ServerInArg *serverArg = (ServerInArg *)arg;
@@ -64,15 +87,16 @@ void *handle_server_input(void *arg) {
             pthread_mutex_unlock(&tuiMutex);
             return NULL;
         }
-
         pthread_mutex_unlock(&tuiMutex);
 
-        char *message = calloc(MAX_MESSAGE_LENGTH + 1, sizeof(char));
-        message[MAX_MESSAGE_LENGTH] = '\0';
-
+        char packet[MAX_PACKET_LENGTH];
         // Block until the server sends us a message
-        // Going to have to set this to non-blocking
-        recvfrom(socketFD, message, MAX_MESSAGE_LENGTH, 0, (struct sockaddr *)&recvAddr, &recvSize);
+        // Going to have to set this to non-blocking so we can gracefully exit
+        recvfrom(socketFD, packet, MAX_PACKET_LENGTH, 0, (struct sockaddr *)&recvAddr, &recvSize);
+
+        int payloadLength = (packet[0] & UNPACK_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
+        payloadLength |= packet[1];
+        char *message = parse_received_packet(packet, payloadLength);
 
         pthread_mutex_lock(&tuiMutex);
         list_add(chatList, message);

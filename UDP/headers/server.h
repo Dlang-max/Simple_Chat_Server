@@ -4,10 +4,6 @@
 
 #define CLIENT_LIST_SIZE 5
 
-/* Unpacking constants */
-#define SERVER_PACKET_TYPE_MASK 0xF0
-#define SERVER_PAYLOAD_LEN_UPPER_NIBBLE_MASK 0x0F
-
 /* Server structs */
 typedef struct ClientListNode {
     struct sockaddr_in clientAddr;
