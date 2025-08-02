@@ -1,7 +1,4 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <ncurses.h>
+#include "constants.h"
 
 #define INIT_BUFFER_SIZE 10
 

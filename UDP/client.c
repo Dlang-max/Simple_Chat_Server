@@ -1,19 +1,12 @@
-#include "client.h"
-#include <bits/pthreadtypes.h>
-#include <fcntl.h>
-#include <ncurses.h>
-#include <pthread.h>
-#include <stdint.h>
-#include <string.h>
-#include <sys/types.h>
-#include <uchar.h>
+#include "./headers/client.h"
+
 /*
 * Packet structure:
-* |___|_________|_________..._____
+* |____|____________|_________..._____
 *   |      |       v
 *   |      v       packet data
-*   v      9 bits for packet size
-*   3 bits for packet version
+*   v      12 bits for packet size
+*   4 bits for packet version
 *
 */
 
@@ -23,6 +16,7 @@ int min(int a, int b) {
 }
 
 pthread_mutex_t tuiMutex = PTHREAD_MUTEX_INITIALIZER;
+
 void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength) {
     pthread_mutex_lock(&tuiMutex);
     // Update chat window
@@ -88,27 +82,25 @@ void *handle_server_input(void *arg) {
     }
 }
 
-
-
 // Going to update this to handle packet types and lengths
-void send_message_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t packetType, GapBuffer *gapBuffer) {
+void send_packet_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t packetType, GapBuffer *gapBuffer) {
     char *payload = get_string(gapBuffer);
     int payloadBytes = gapBuffer->strLen;
-    int payloadHeaderBytes = (PACKET_TYPE_BITS + PACKET_LEN_BITS) / 2;
-    int totalBytes = payloadBytes + payloadHeaderBytes;
+    int packetHeaderBytes = PACKET_HEADER_BYTES; 
+    int totalBytes = payloadBytes + packetHeaderBytes;
     uint8_t *packet = calloc(totalBytes, sizeof(uint8_t));
 
     // Pack packet type
     u_int8_t firstByte = 0;
-    firstByte |= (uint8_t)((packetType & 0x0F) << 4);
+    firstByte |= (uint8_t)((packetType & CLIENT_PACKET_TYPE_MASK) << 4);
 
-    // Pack packet length
-    firstByte |= (uint8_t)((payloadBytes & 0xF00) >> 8);
+    // Pack payload length
+    firstByte |= (uint8_t)((payloadBytes & CLIENT_PAYLOAD_LEN_UPPER_NIBBLE_MASK) >> 8);
     packet[0] = firstByte;
-    packet[1] = (uint8_t)(payloadBytes & 0xFF);
+    packet[1] = (uint8_t)(payloadBytes & CLIENT_PAYLOAD_LEN_LOWER_BYTE_MASK);
 
-    // Pack packet message
-    memcpy(packet + payloadHeaderBytes, payload, payloadBytes);
+    // Pack payload message
+    memcpy(packet + packetHeaderBytes, payload, payloadBytes);
 
     // Send packet to server
     sendto(socketFD, packet, totalBytes, 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
@@ -120,7 +112,7 @@ void send_message_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_
 void handle_enter_pressed(int socketFD, struct sockaddr_in *serverAddr, WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength) {
     // Send the user's message to the server
     // 2 is a placeholder -- I want to implement packet types
-    send_message_to_server(socketFD, serverAddr, 2, gapBuffer);
+    send_packet_to_server(socketFD, serverAddr, MESSAGE_PACKET_ID, gapBuffer);
 
     // Reset input window
     pthread_mutex_lock(&tuiMutex);

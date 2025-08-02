@@ -1,28 +1,4 @@
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-
-#define CLIENT_LIST_SIZE 5
-#define PORT 6969
-#define MAX_MESSAGE_LENGTH 256
-#define SERVER_ADDR "192.168.50.20"
-
-typedef struct ClientListNode {
-    struct sockaddr_in clientAddr;
-} ClientListNode;
-
-
-typedef struct ClientList {
-    int size;
-    ClientListNode *clients;
-} ClientList;
+#include "./headers/server.h"
 
 ClientList *client_list_init() {
     ClientListNode *clients = calloc(CLIENT_LIST_SIZE, sizeof(ClientListNode));
@@ -72,13 +48,41 @@ void update_clients(ClientList *clientList, struct sockaddr_in clientAddr) {
     client_list_insert(clientList, clientAddr);
 }
 
-void send_message_to_clients(int socketFD, ClientList *clientList, char *buffer) {
+void send_message_to_clients(int socketFD, ClientList *clientList, char *packet, int payloadLength) {
     for(int i = 0; i < clientList->size; i++) {
         struct sockaddr_in clientAddr = clientList->clients[i].clientAddr;
-        sendto(socketFD, buffer, MAX_MESSAGE_LENGTH, 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
+        sendto(socketFD, packet, PACKET_HEADER_BYTES + payloadLength, 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
     }
 }
 
+int min(int a, int b) {
+    return a < b ? a : b;
+}
+
+char *parse_message_packet(char *packet, int payloadLength) {
+    int messageLength = min(MAX_MESSAGE_LENGTH, payloadLength);
+    char *message = calloc(messageLength + 1, sizeof(char));
+    message[messageLength] = '\0';
+
+    memcpy(message, packet + PACKET_HEADER_BYTES, messageLength);
+
+    return message;
+}
+
+char *parse_received_packet(char *packet, int payloadLength) {
+    int packetType = (packet[0] & SERVER_PACKET_TYPE_MASK) >> 4;
+    switch(packetType) {
+        case MESSAGE_PACKET_ID:
+            char *message = parse_message_packet(packet, payloadLength);
+            return message;
+            break;
+        default:
+            break;
+
+    }
+
+    return NULL;
+}
 
 int main(void) {
     int socketFD = socket(AF_INET, SOCK_DGRAM, 0);
@@ -99,26 +103,28 @@ int main(void) {
     }
 
     struct sockaddr_in clientAddr;
-    socklen_t clientAddrSize;
+    socklen_t clientAddrSize = sizeof(clientAddr);
 
     ClientList *clientList = client_list_init();
     printf("Running Server...\n");
     while(true) {
-        char buffer[MAX_MESSAGE_LENGTH + 1];
-        memset(buffer, '\0', MAX_MESSAGE_LENGTH + 1);
+        char packet[MAX_PACKET_LENGTH];
+        // Receive UDP packets from clients
+        recvfrom(socketFD, packet, MAX_PACKET_LENGTH, 0, (struct sockaddr *)&clientAddr, &clientAddrSize);
 
-        // Receive data from clients
-        recvfrom(socketFD, buffer, MAX_MESSAGE_LENGTH, 0, (struct sockaddr *)&clientAddr, &clientAddrSize);
+        int payloadLength = (packet[0] & SERVER_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
+        payloadLength |= packet[1];
+        char *message = parse_received_packet(packet, payloadLength);
 
-        // Print message information to terminal
         char clientIP[INET_ADDRSTRLEN];
+        clientIP[INET_ADDRSTRLEN - 1] = '\0';
         inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
-        printf("%s:%d > %s\n", clientIP, ntohs(clientAddr.sin_port), buffer);
+
+        printf("%s:%d > %s\n", clientIP, ntohs(clientAddr.sin_port), message);
         update_clients(clientList, clientAddr);
 
-
         // Send data to clients
-        send_message_to_clients(socketFD, clientList, buffer);
+        send_message_to_clients(socketFD, clientList, packet, payloadLength);
     }
 
     free(clientList);

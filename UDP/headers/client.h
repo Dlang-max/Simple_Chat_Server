@@ -1,30 +1,13 @@
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <pthread.h>
-#include <bits/pthreadtypes.h>
-#include <ncurses.h>
-
+#include "constants.h"
 #include "list.h"
 #include "gap_buffer.h"
 
-#define BITS_IN_BYTE 8
+/* Unpacking constants */
+#define CLIENT_PACKET_TYPE_MASK 0x0F
+#define CLIENT_PAYLOAD_LEN_UPPER_NIBBLE_MASK 0xF00
+#define CLIENT_PAYLOAD_LEN_LOWER_BYTE_MASK 0xFF
 
-#define PORT 6969
-#define MAX_MESSAGE_SIZE 256
-#define SERVER_ADDR "192.168.50.20"
-
-#define PACKET_TYPE_BITS 4
-#define PACKET_LEN_BITS 12
-
+/* Ncurses constants */
 #define INPUT_HEIGHT 3
 #define CURSOR_START_ROW 1
 #define CURSOR_START_COL 18
@@ -33,6 +16,7 @@
 #define ENTER_KEY_CODE 10
 #define BACKSPACE_KEY_CODE 127
 
+/* Client structs */
 typedef struct UserInArg {
     int socketFD;
     struct sockaddr_in *serverAddr;
@@ -61,5 +45,6 @@ typedef struct ServerInArg {
     bool *exitProgramPtr;
 } ServerInArg;
 
+/* Method signatures */
 void *handle_server_input(void *arg);
 void *handle_user_input(void *arg);

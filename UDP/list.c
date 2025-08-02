@@ -1,5 +1,4 @@
-#include "list.h"
-#include <string.h>
+#include "./headers/list.h"
 
 List *list_init() {
     ListNode *head = calloc(1, sizeof(ListNode));

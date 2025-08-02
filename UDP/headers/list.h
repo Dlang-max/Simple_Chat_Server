@@ -1,6 +1,4 @@
-#include <stdlib.h>
-
-#define MAX_MESSAGE_LENGTH 256
+#include "constants.h"
 
 typedef struct ListNode {
     struct ListNode *next;

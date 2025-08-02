@@ -1,5 +1,4 @@
-#include "gap_buffer.h"
-#include <ncurses.h>
+#include "./headers/gap_buffer.h"
 
 /*
 * Gap Buffer API
