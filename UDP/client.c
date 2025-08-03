@@ -1,4 +1,5 @@
 #include "./headers/client.h"
+#include <ncurses.h>
 
 int min(int a, int b) {
     return a < b ? a : b;
@@ -34,6 +35,47 @@ void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuff
     pthread_mutex_unlock(&tuiMutex);
 }
 
+
+
+
+
+
+
+
+/* Methods for sending and parsing connect packets */
+void send_connect_packet(int socketFD, struct sockaddr_in *serverAddr, GapBuffer *gapBuffer) {
+    char *username = get_string(gapBuffer);
+    int usernameLength = gapBuffer->strLen;
+    uint8_t *packet = calloc(CONNECT_PACKET_BYTES, sizeof(uint8_t));
+
+    // Pack packet type
+    u_int8_t firstByte = 0;
+    firstByte |= (uint8_t)((CONNECT_PACKET_ID & CLIENT_PACKET_TYPE_MASK) << 4);
+    packet[0] = firstByte;
+
+    // Pack sequence number (still need to add functionality)
+    // packet[1] =
+
+    // Pack username into packet
+    memcpy(packet + CONNECT_HEADER_BYTES, username, usernameLength);
+
+    // Send packet to server
+    sendto(socketFD, packet, CONNECT_PACKET_BYTES, 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
+
+    // Need code here to ensure packet transmission was successful
+    free(packet);
+    free(username);
+}
+
+
+
+
+
+
+
+
+
+/* Methods for sending and parsing message packets */
 char *parse_message_packet(char *packet) {
     int payloadLength = (packet[0] & UNPACK_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
     payloadLength |= packet[1];
@@ -46,6 +88,34 @@ char *parse_message_packet(char *packet) {
     return message;
 }
 
+void send_message_packet(int socketFD, struct sockaddr_in *serverAddr, GapBuffer *gapBuffer) {
+    char *payload = get_string(gapBuffer);
+    int payloadBytes = gapBuffer->strLen;
+    int totalBytes = PACKET_HEADER_BYTES + payloadBytes;
+    uint8_t *packet = calloc(totalBytes, sizeof(uint8_t));
+
+    // Pack packet type
+    u_int8_t firstByte = 0;
+    firstByte |= (uint8_t)((MESSAGE_PACKET_ID & CLIENT_PACKET_TYPE_MASK) << 4);
+
+    // Pack payload length
+    firstByte |= (uint8_t)((payloadBytes & CLIENT_PAYLOAD_LEN_UPPER_NIBBLE_MASK) >> 8);
+    packet[0] = firstByte;
+    packet[1] = (uint8_t)(payloadBytes & CLIENT_PAYLOAD_LEN_LOWER_BYTE_MASK);
+
+    // Pack payload message
+    memcpy(packet + PACKET_HEADER_BYTES, payload, payloadBytes);
+
+    // Send packet to server
+    sendto(socketFD, packet, totalBytes, 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
+
+    // Need code here to ensure packet transmission was successful
+    free(packet);
+    free(payload);
+}
+
+
+
 char *parse_received_packet(char *packet) {
     int packetType = (packet[0] & UNPACK_PACKET_TYPE_MASK) >> 4;
     switch(packetType) {
@@ -53,6 +123,7 @@ char *parse_received_packet(char *packet) {
             break;
 
         case ACK_PACKET_ID:
+
             break;
 
         case MESSAGE_PACKET_ID:
@@ -61,10 +132,13 @@ char *parse_received_packet(char *packet) {
             break;
         default:
             break;
-
     }
 
     return NULL;
+}
+
+void *handle_packet_retransmission(void *arg) {
+    
 }
 
 void *handle_server_input(void *arg) {
@@ -98,45 +172,41 @@ void *handle_server_input(void *arg) {
         recvfrom(socketFD, packet, MAX_PACKET_LENGTH, 0, (struct sockaddr *)&recvAddr, &recvSize);
 
         char *message = parse_received_packet(packet);
+        if(message != NULL) {
+            pthread_mutex_lock(&tuiMutex);
+            list_add(chatList, message);
+            pthread_mutex_unlock(&tuiMutex);
+        }
 
-        pthread_mutex_lock(&tuiMutex);
-        list_add(chatList, message);
-        pthread_mutex_unlock(&tuiMutex);
-
-        update_tui(inputWindow, chatWindow, chatList,gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
+        update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
     }
 }
 
 // Going to update this to handle packet types and lengths
 void send_packet_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t packetType, GapBuffer *gapBuffer) {
-    char *payload = get_string(gapBuffer);
-    int payloadBytes = gapBuffer->strLen;
-    int packetHeaderBytes = PACKET_HEADER_BYTES; 
-    int totalBytes = payloadBytes + packetHeaderBytes;
-    uint8_t *packet = calloc(totalBytes, sizeof(uint8_t));
+    switch(packetType) {
+        case CONNECT_PACKET_ID:
+            send_connect_packet(socketFD, serverAddr, gapBuffer);
+            break;
 
-    // Pack packet type
-    u_int8_t firstByte = 0;
-    firstByte |= (uint8_t)((packetType & CLIENT_PACKET_TYPE_MASK) << 4);
+        case DISCONNECT_PACKET_ID:
+            break;
 
-    // Pack payload length
-    firstByte |= (uint8_t)((payloadBytes & CLIENT_PAYLOAD_LEN_UPPER_NIBBLE_MASK) >> 8);
-    packet[0] = firstByte;
-    packet[1] = (uint8_t)(payloadBytes & CLIENT_PAYLOAD_LEN_LOWER_BYTE_MASK);
+        case ACK_PACKET_ID:
+            break;
 
-    // Pack payload message
-    memcpy(packet + packetHeaderBytes, payload, payloadBytes);
+        case MESSAGE_PACKET_ID:
+            send_message_packet(socketFD, serverAddr, gapBuffer);
+            break;
 
-    // Send packet to server
-    sendto(socketFD, packet, totalBytes, 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
+        default:
+            break;
+    }
 
-    free(packet);
-    free(payload);
 }
 
 void handle_enter_pressed(int socketFD, struct sockaddr_in *serverAddr, WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength, bool *connected) {
     // Send the user's message to the server
-    // 2 is a placeholder -- I want to implement packet types
     send_packet_to_server(socketFD, serverAddr, MESSAGE_PACKET_ID, gapBuffer);
 
     // Reset input window
@@ -285,6 +355,7 @@ int main(void) {
     WINDOW *inputWindow = newwin(INPUT_HEIGHT, width, height - INPUT_HEIGHT, 0);
     box(inputWindow, 0, 0);
     keypad(inputWindow, true);
+    nodelay(inputWindow, true);
     mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Username > ");
     wrefresh(inputWindow);
 
