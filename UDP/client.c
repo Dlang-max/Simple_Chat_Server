@@ -1,13 +1,4 @@
 #include "./headers/client.h"
-/*
-* Packet structure:
-* |____|____________|_________..._____
-*   |      |       v
-*   |      v       packet data
-*   v      12 bits for packet size
-*   4 bits for packet version
-*
-*/
 
 int min(int a, int b) {
     return a < b ? a : b;
@@ -15,7 +6,7 @@ int min(int a, int b) {
 
 pthread_mutex_t tuiMutex = PTHREAD_MUTEX_INITIALIZER;
 
-void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength) {
+void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength, bool *connected) {
     pthread_mutex_lock(&tuiMutex);
     // Update chat window
     werase(chatWindow);
@@ -32,29 +23,40 @@ void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuff
     werase(inputWindow);
 
     char *input = get_string(gapBuffer);
-    mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > %.*s", min(gapBuffer->strLen, inputLength), input + *inputIndexPtr);
-
+    if(!(*connected)) {
+        mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Username > %.*s", min(gapBuffer->strLen, inputLength), input + *inputIndexPtr);
+    } else {
+        mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > %.*s", min(gapBuffer->strLen, inputLength), input + *inputIndexPtr);
+    }
     wmove(inputWindow, CURSOR_START_ROW, *cursorPosPtr);
     box(inputWindow, 0, 0);
     wrefresh(inputWindow);
     pthread_mutex_unlock(&tuiMutex);
 }
 
-char *parse_message_packet(char *packet, int payloadLength) {
+char *parse_message_packet(char *packet) {
+    int payloadLength = (packet[0] & UNPACK_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
+    payloadLength |= packet[1];
+
     int messageLength = min(MAX_MESSAGE_LENGTH, payloadLength);
     char *message = calloc(messageLength + 1, sizeof(char));
     message[messageLength] = '\0';
-
     memcpy(message, packet + PACKET_HEADER_BYTES, messageLength);
 
     return message;
 }
 
-char *parse_received_packet(char *packet, int payloadLength) {
+char *parse_received_packet(char *packet) {
     int packetType = (packet[0] & UNPACK_PACKET_TYPE_MASK) >> 4;
     switch(packetType) {
+        case DISCONNECT_PACKET_ID:
+            break;
+
+        case ACK_PACKET_ID:
+            break;
+
         case MESSAGE_PACKET_ID:
-            char *message = parse_message_packet(packet, payloadLength);
+            char *message = parse_message_packet(packet);
             return message;
             break;
         default:
@@ -76,6 +78,7 @@ void *handle_server_input(void *arg) {
     int *cursorPosPtr = serverArg->cursorPosPtr;
     int *inputIndexPtr = serverArg->cursorPosPtr;
     int inputLength = serverArg->inputLength;
+    bool *connected = serverArg->connected;
     bool *exitProgramPtr = serverArg->exitProgramPtr;
 
     struct sockaddr_in recvAddr;
@@ -94,15 +97,13 @@ void *handle_server_input(void *arg) {
         // Going to have to set this to non-blocking so we can gracefully exit
         recvfrom(socketFD, packet, MAX_PACKET_LENGTH, 0, (struct sockaddr *)&recvAddr, &recvSize);
 
-        int payloadLength = (packet[0] & UNPACK_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
-        payloadLength |= packet[1];
-        char *message = parse_received_packet(packet, payloadLength);
+        char *message = parse_received_packet(packet);
 
         pthread_mutex_lock(&tuiMutex);
         list_add(chatList, message);
         pthread_mutex_unlock(&tuiMutex);
 
-        update_tui(inputWindow, chatWindow, chatList,gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
+        update_tui(inputWindow, chatWindow, chatList,gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
     }
 }
 
@@ -133,7 +134,7 @@ void send_packet_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t
     free(payload);
 }
 
-void handle_enter_pressed(int socketFD, struct sockaddr_in *serverAddr, WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength) {
+void handle_enter_pressed(int socketFD, struct sockaddr_in *serverAddr, WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength, bool *connected) {
     // Send the user's message to the server
     // 2 is a placeholder -- I want to implement packet types
     send_packet_to_server(socketFD, serverAddr, MESSAGE_PACKET_ID, gapBuffer);
@@ -144,7 +145,7 @@ void handle_enter_pressed(int socketFD, struct sockaddr_in *serverAddr, WINDOW *
     *cursorPosPtr = CURSOR_START_COL;
     gap_buffer_reset(gapBuffer);
     pthread_mutex_unlock(&tuiMutex);
-    update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
+    update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
 
 }
 
@@ -163,6 +164,7 @@ void *handle_user_input(void *arg) {
     int cursorMaxCol = userArg->cursorMaxCol;
     int inputLength = userArg->inputLength;
     int width = userArg->width;
+    bool *connected = userArg->connected;
     bool *exitProgramPtr = userArg->exitProgramPtr;
 
     while(!(*exitProgramPtr)) {
@@ -188,7 +190,7 @@ void *handle_user_input(void *arg) {
                     (*cursorPosPtr)--;
                 }
                 pthread_mutex_unlock(&tuiMutex);
-                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
+                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
                 break;
 
 
@@ -206,13 +208,11 @@ void *handle_user_input(void *arg) {
                 }
                 move_gap_left(gapBuffer);
                 pthread_mutex_unlock(&tuiMutex);
-                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
+                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
                 break;
 
             // Handle user pressing the right arrow key
             case KEY_RIGHT:
-
-
                 if(*cursorPosPtr - cursorMinCol == charsInLeft + charsInRight) {
                     continue;
                 } 
@@ -225,7 +225,7 @@ void *handle_user_input(void *arg) {
                 }
                 move_gap_right(gapBuffer);
                 pthread_mutex_unlock(&tuiMutex);
-                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
+                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
                 break;
 
             // Handle user pressing enter
@@ -234,7 +234,7 @@ void *handle_user_input(void *arg) {
                     continue;
                 }
 
-                handle_enter_pressed(socketFD, serverAddr, inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
+                handle_enter_pressed(socketFD, serverAddr, inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
                 break;
 
             // Handle user pressing escape key 
@@ -262,7 +262,7 @@ void *handle_user_input(void *arg) {
                     (*cursorPosPtr)++;
                 }
                 pthread_mutex_unlock(&tuiMutex);
-                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength);
+                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
                 break;
         }
     }
@@ -285,7 +285,7 @@ int main(void) {
     WINDOW *inputWindow = newwin(INPUT_HEIGHT, width, height - INPUT_HEIGHT, 0);
     box(inputWindow, 0, 0);
     keypad(inputWindow, true);
-    mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > ");
+    mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Username > ");
     wrefresh(inputWindow);
 
     // Initialize Chat Window
@@ -320,6 +320,9 @@ int main(void) {
     int inputIndex = 0;
     int inputLength = cursorMaxCol - cursorMinCol;
 
+    // Boolean for whether or not we've connected to server
+    bool connected = false;
+
     // Boolean for whether or not we should exit
     bool exitProgram = false;
 
@@ -337,6 +340,7 @@ int main(void) {
     userArg->cursorMaxCol = cursorMaxCol;
     userArg->inputLength = inputLength;
     userArg->width = width;
+    userArg->connected = &connected;
     userArg->exitProgramPtr = &exitProgram;
 
     // Pack argument that gets passed to handle_server_input
@@ -349,6 +353,7 @@ int main(void) {
     serverArg->cursorPosPtr = &cursorPos;
     serverArg->inputIndexPtr = &inputIndex;
     serverArg->inputLength = inputLength;
+    serverArg->connected = &connected;
     serverArg->exitProgramPtr = &exitProgram;
 
     // Initialize pthreads for handling user and server input

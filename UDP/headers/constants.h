@@ -13,7 +13,6 @@
 #include <bits/pthreadtypes.h>
 #include <ncurses.h>
 
-
 /*
  * Connect packet structure
  *
@@ -51,7 +50,6 @@
  *   V        12 bits for payload length
  *   4 bits for packet type
  */
-
 
 /* Established constants */
 #define BITS_IN_BYTE 8
