@@ -38,41 +38,35 @@
 
 #define INPUT_HEIGHT 3
 #define CURSOR_START_ROW 1
-#define CURSOR_START_COL 18
+#define CURSOR_START_COL_USERNAME 19
+#define CURSOR_START_COL_MESSAGE 18
 
 #define ESC_KEY_CODE 27
 #define ENTER_KEY_CODE 10
 #define BACKSPACE_KEY_CODE 127
 
-typedef struct UserInArg {
+typedef struct UIContext {
+    WINDOW *inputWindow;
+    WINDOW *chatWindow;
+    int *cursorPosPtr;
+    int *inputIndexPtr;
+    int *cursorMinColPtr;
+    int cursorMaxCol;
+    int *inputLengthPtr;
+    int *maxInputLengthPtr;
+} UIContext;
+
+typedef struct NetworkContext {
     int socketFD;
     struct sockaddr_in *serverAddr;
-    WINDOW *inputWindow;
-    WINDOW *chatWindow;
+    bool *connectedPtr;
+} NetworkContext;
+
+typedef struct AppContext {
     List *chatList;
     GapBuffer *gapBuffer;
-    int *cursorPosPtr;
-    int *inputIndexPtr;
-    int cursorMinCol;
-    int cursorMaxCol;
-    int inputLength;
-    int width;
-    bool *connected;
+    char *username;
     bool *exitProgramPtr;
-} UserInArg;
+} AppContext;
 
-typedef struct ServerInArg {
-    int socketFD;
-    WINDOW *inputWindow;
-    WINDOW *chatWindow;
-    List *chatList;
-    GapBuffer *gapBuffer;
-    int *cursorPosPtr;
-    int *inputIndexPtr;
-    int inputLength;
-    bool *connected;
-    bool *exitProgramPtr;
-} ServerInArg;
 
-void *handle_server_input(void *arg);
-void *handle_user_input(void *arg);

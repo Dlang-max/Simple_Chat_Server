@@ -1,14 +1,27 @@
 #include "./headers/client.h"
-#include <ncurses.h>
+#include <stdint.h>
+#include <sys/types.h>
 
 int min(int a, int b) {
     return a < b ? a : b;
 }
 
-pthread_mutex_t tuiMutex = PTHREAD_MUTEX_INITIALIZER;
 
-void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength, bool *connected) {
-    pthread_mutex_lock(&tuiMutex);
+void update_tui(UIContext *uiContext, NetworkContext *networkContext, AppContext *appContext) {
+    /* Unpack UI context */
+    WINDOW *inputWindow = uiContext->inputWindow;
+    WINDOW *chatWindow = uiContext->chatWindow;
+    int *cursorPosPtr = uiContext->cursorPosPtr;
+    int *inputIndexPtr = uiContext->inputIndexPtr;
+    int cursorMinCol = *(uiContext->cursorMinColPtr);
+    int cursorMaxCol = uiContext->cursorMaxCol;
+    int inputLength = *(uiContext->inputLengthPtr);
+
+    // Unpack app context
+    List *chatList = appContext->chatList;
+    GapBuffer *gapBuffer = appContext->gapBuffer;
+    bool *exitProgramPtr = appContext->exitProgramPtr;
+
     // Update chat window
     werase(chatWindow);
     wmove(chatWindow, 1, 0);
@@ -24,15 +37,15 @@ void update_tui(WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuff
     werase(inputWindow);
 
     char *input = get_string(gapBuffer);
-    if(!(*connected)) {
+    if(!*(networkContext->connectedPtr)) {
         mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Username > %.*s", min(gapBuffer->strLen, inputLength), input + *inputIndexPtr);
     } else {
         mvwprintw(inputWindow, CURSOR_START_ROW, 2, "Enter Message > %.*s", min(gapBuffer->strLen, inputLength), input + *inputIndexPtr);
     }
+
     wmove(inputWindow, CURSOR_START_ROW, *cursorPosPtr);
     box(inputWindow, 0, 0);
     wrefresh(inputWindow);
-    pthread_mutex_unlock(&tuiMutex);
 }
 
 
@@ -67,44 +80,49 @@ void send_connect_packet(int socketFD, struct sockaddr_in *serverAddr, GapBuffer
     free(username);
 }
 
-
-
-
-
-
-
-
-
 /* Methods for sending and parsing message packets */
-char *parse_message_packet(char *packet) {
-    int payloadLength = (packet[0] & UNPACK_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
-    payloadLength |= packet[1];
-
-    int messageLength = min(MAX_MESSAGE_LENGTH, payloadLength);
+char *parse_message_packet(uint8_t *packet) {
+    int payloadLength = (packet[1] << 8) | packet[2];
+    int usernameLength = strlen((char *)(packet + MESSAGE_PACKET_HEADER_BYTES));
+    int messageLength = USERNAME_PREFIX_CHARS + usernameLength + USERNAME_SUFFIX_CHARS + payloadLength;
     char *message = calloc(messageLength + 1, sizeof(char));
-    message[messageLength] = '\0';
-    memcpy(message, packet + PACKET_HEADER_BYTES, messageLength);
+    message[messageLength + 1] = '\0';
+
+    message[0] = '>';
+    message[1] = ' ';
+    memcpy(message + 2, packet + MESSAGE_PACKET_HEADER_BYTES, usernameLength);
+    message[USERNAME_PREFIX_CHARS + usernameLength] = ' ';
+    message[USERNAME_PREFIX_CHARS + usernameLength + 1] = '-';
+    message[USERNAME_PREFIX_CHARS + usernameLength + 2] = '-';
+    message[USERNAME_PREFIX_CHARS + usernameLength + 3] = '-';
+    message[USERNAME_PREFIX_CHARS + usernameLength + 4] = ' ';
+    memcpy(message + USERNAME_PREFIX_CHARS + usernameLength + USERNAME_SUFFIX_CHARS, packet + MESSAGE_PACKET_HEADER_BYTES + USERNAME_BYTES, payloadLength);
 
     return message;
 }
-
-void send_message_packet(int socketFD, struct sockaddr_in *serverAddr, GapBuffer *gapBuffer) {
+void send_message_packet(int socketFD, struct sockaddr_in *serverAddr, AppContext *appContext) {
+    GapBuffer *gapBuffer = appContext->gapBuffer;
     char *payload = get_string(gapBuffer);
-    int payloadBytes = gapBuffer->strLen;
-    int totalBytes = PACKET_HEADER_BYTES + payloadBytes;
+    uint16_t payloadBytes = gapBuffer->strLen;
+
+    char *username = appContext->username;
+    int usernameBytes = strlen(username);
+
+    int totalBytes = 1 + 2 + USERNAME_BYTES + payloadBytes;
     uint8_t *packet = calloc(totalBytes, sizeof(uint8_t));
 
-    // Pack packet type
-    u_int8_t firstByte = 0;
-    firstByte |= (uint8_t)((MESSAGE_PACKET_ID & CLIENT_PACKET_TYPE_MASK) << 4);
-
+    // Pack packet id
+    packet[0] = (uint8_t)(MESSAGE_PACKET_ID);
+    
     // Pack payload length
-    firstByte |= (uint8_t)((payloadBytes & CLIENT_PAYLOAD_LEN_UPPER_NIBBLE_MASK) >> 8);
-    packet[0] = firstByte;
-    packet[1] = (uint8_t)(payloadBytes & CLIENT_PAYLOAD_LEN_LOWER_BYTE_MASK);
+    packet[1] = (payloadBytes & 0xFF00) >> 8;
+    packet[2] = payloadBytes & 0xFF;
 
-    // Pack payload message
-    memcpy(packet + PACKET_HEADER_BYTES, payload, payloadBytes);
+    // Pack username
+    memcpy(packet + 3, username, usernameBytes);
+
+    // Pack payload
+    memcpy(packet + 3 + USERNAME_BYTES, payload, payloadBytes);
 
     // Send packet to server
     sendto(socketFD, packet, totalBytes, 0, (struct sockaddr *)serverAddr, sizeof(*serverAddr));
@@ -115,7 +133,6 @@ void send_message_packet(int socketFD, struct sockaddr_in *serverAddr, GapBuffer
 }
 
 
-
 char *parse_received_packet(char *packet) {
     int packetType = (packet[0] & UNPACK_PACKET_TYPE_MASK) >> 4;
     switch(packetType) {
@@ -123,12 +140,13 @@ char *parse_received_packet(char *packet) {
             break;
 
         case ACK_PACKET_ID:
-
             break;
+
+
 
         case MESSAGE_PACKET_ID:
             char *message = parse_message_packet(packet);
-            return message;
+            return message; 
             break;
         default:
             break;
@@ -140,7 +158,7 @@ char *parse_received_packet(char *packet) {
 void *handle_packet_retransmission(void *arg) {
     
 }
-
+/*
 void *handle_server_input(void *arg) {
     // Unpack argument passed to function
     ServerInArg *serverArg = (ServerInArg *)arg;
@@ -159,12 +177,9 @@ void *handle_server_input(void *arg) {
     socklen_t recvSize = sizeof(recvAddr);
 
     while(true) {
-        pthread_mutex_lock(&tuiMutex);
         if(*exitProgramPtr) {
-            pthread_mutex_unlock(&tuiMutex);
             return NULL;
         }
-        pthread_mutex_unlock(&tuiMutex);
 
         char packet[MAX_PACKET_LENGTH];
         // Block until the server sends us a message
@@ -173,30 +188,26 @@ void *handle_server_input(void *arg) {
 
         char *message = parse_received_packet(packet);
         if(message != NULL) {
-            pthread_mutex_lock(&tuiMutex);
             list_add(chatList, message);
-            pthread_mutex_unlock(&tuiMutex);
         }
 
         update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
     }
 }
+*/
 
 // Going to update this to handle packet types and lengths
-void send_packet_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t packetType, GapBuffer *gapBuffer) {
+void send_packet_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t packetType, AppContext *appContext) {
     switch(packetType) {
         case CONNECT_PACKET_ID:
-            send_connect_packet(socketFD, serverAddr, gapBuffer);
+            //send_connect_packet(socketFD, serverAddr, gapBuffer);
             break;
 
         case DISCONNECT_PACKET_ID:
             break;
 
-        case ACK_PACKET_ID:
-            break;
-
         case MESSAGE_PACKET_ID:
-            send_message_packet(socketFD, serverAddr, gapBuffer);
+            send_message_packet(socketFD, serverAddr, appContext);
             break;
 
         default:
@@ -205,139 +216,133 @@ void send_packet_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t
 
 }
 
-void handle_enter_pressed(int socketFD, struct sockaddr_in *serverAddr, WINDOW *inputWindow, WINDOW *chatWindow, List *chatList, GapBuffer *gapBuffer, int *cursorPosPtr, int *inputIndexPtr, int inputLength, bool *connected) {
-    // Send the user's message to the server
-    send_packet_to_server(socketFD, serverAddr, MESSAGE_PACKET_ID, gapBuffer);
-
-    // Reset input window
-    pthread_mutex_lock(&tuiMutex);
-    *inputIndexPtr = 0;
-    *cursorPosPtr = CURSOR_START_COL;
-    gap_buffer_reset(gapBuffer);
-    pthread_mutex_unlock(&tuiMutex);
-    update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
-
-}
-
-void *handle_user_input(void *arg) {
-    // Unpack argument passed to function
-    UserInArg *userArg = (UserInArg *)arg;
-    int socketFD = userArg->socketFD;
-    struct sockaddr_in *serverAddr = userArg->serverAddr;
-    WINDOW *inputWindow = userArg->inputWindow; 
-    WINDOW *chatWindow = userArg->chatWindow;
-    List *chatList = userArg->chatList;
-    GapBuffer *gapBuffer = userArg->gapBuffer;
-    int *cursorPosPtr = userArg->cursorPosPtr;
-    int *inputIndexPtr = userArg->inputIndexPtr;
-    int cursorMinCol = userArg->cursorMinCol;
-    int cursorMaxCol = userArg->cursorMaxCol;
-    int inputLength = userArg->inputLength;
-    int width = userArg->width;
-    bool *connected = userArg->connected;
-    bool *exitProgramPtr = userArg->exitProgramPtr;
-
-    while(!(*exitProgramPtr)) {
-        int charsInLeft = gapBuffer->gapStart;
-        int charsInRight = gapBuffer->size - gapBuffer->gapEnd - 1;
-
-        // Get and sanitize input from user
-        wmove(inputWindow, CURSOR_START_ROW, *cursorPosPtr);
-        int c = wgetch(inputWindow);
-
-        switch(c) {
-            // Handle user pressing the backspace
-            case KEY_BACKSPACE:
-                if(*cursorPosPtr == CURSOR_START_COL) {
-                    continue;
-                }
-
-                pthread_mutex_lock(&tuiMutex);
-                gap_buffer_delete(gapBuffer);
-                if(gapBuffer->strLen >= inputLength && *inputIndexPtr > 0) {
-                    (*inputIndexPtr)--;
-                } else {
-                    (*cursorPosPtr)--;
-                }
-                pthread_mutex_unlock(&tuiMutex);
-                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
-                break;
-
-
-            // Handle user pressing the left arrow key
-            case KEY_LEFT:
-                if(*cursorPosPtr == cursorMinCol && *inputIndexPtr == 0) {
-                    continue;
-                }
-
-                pthread_mutex_lock(&tuiMutex);
-                if(*cursorPosPtr == cursorMinCol) {
-                    (*inputIndexPtr)--;
-                } else {
-                    (*cursorPosPtr)--;
-                }
-                move_gap_left(gapBuffer);
-                pthread_mutex_unlock(&tuiMutex);
-                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
-                break;
-
-            // Handle user pressing the right arrow key
-            case KEY_RIGHT:
-                if(*cursorPosPtr - cursorMinCol == charsInLeft + charsInRight) {
-                    continue;
-                } 
-
-                pthread_mutex_lock(&tuiMutex);
-                if(*cursorPosPtr == cursorMaxCol && gapBuffer->strLen - *inputIndexPtr > inputLength) {
-                    (*inputIndexPtr)++;
-                } else if(*cursorPosPtr < cursorMaxCol) {
-                    (*cursorPosPtr)++;
-                }
-                move_gap_right(gapBuffer);
-                pthread_mutex_unlock(&tuiMutex);
-                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
-                break;
-
-            // Handle user pressing enter
-            case ENTER_KEY_CODE:
-                if(gapBuffer->strLen == 0) {
-                    continue;
-                }
-
-                handle_enter_pressed(socketFD, serverAddr, inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
-                break;
-
-            // Handle user pressing escape key 
-            case ESC_KEY_CODE:
-                pthread_mutex_lock(&tuiMutex);
-                *exitProgramPtr = true;
-                pthread_mutex_unlock(&tuiMutex);
-                break;
-
-            // Handle user enter text
-            default:
-                if(isprint(c) == 0) {
-                    continue;
-                }
-
-                if(charsInLeft + charsInRight == MAX_MESSAGE_LENGTH) {
-                    continue;
-                }
-
-                pthread_mutex_lock(&tuiMutex);
-                gap_buffer_insert(gapBuffer, (char)c);
-                if(*cursorPosPtr == cursorMaxCol) {
-                    (*inputIndexPtr)++;
-                } else {
-                    (*cursorPosPtr)++;
-                }
-                pthread_mutex_unlock(&tuiMutex);
-                update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
-                break;
-        }
+void handle_enter_pressed(UIContext *uiContext, NetworkContext *networkContext, AppContext *appContext) {
+    bool *connectedPtr = networkContext->connectedPtr;
+    GapBuffer *gapBuffer = appContext->gapBuffer;
+    if(!*connectedPtr) {
+        char *username = get_string(gapBuffer);
+        appContext->username = username;
+        *connectedPtr = true;
+    } else {
+        int socketFD = networkContext->socketFD;
+        struct sockaddr_in *serverAddr = networkContext->serverAddr;
+        send_packet_to_server(socketFD, serverAddr, MESSAGE_PACKET_ID, appContext);
     }
 
-    return NULL;
+    // Reset input accumulators and gap buffer
+    int *cursorPosPtr = uiContext->cursorPosPtr;
+    int *inputIndexPtr = uiContext->inputIndexPtr;
+    int *cursorMinColPtr = uiContext->cursorMinColPtr;
+    int cursorMaxCol = uiContext->cursorMaxCol;
+    int *inputLengthPtr = uiContext->inputLengthPtr;
+    int *maxInputLengthPtr = uiContext->maxInputLengthPtr;
+ 
+    bool connected = *connectedPtr;
+    *cursorPosPtr = connected ? CURSOR_START_COL_MESSAGE : CURSOR_START_COL_USERNAME;
+    *inputIndexPtr = 0;
+    *cursorMinColPtr = *cursorPosPtr;
+    *inputLengthPtr = cursorMaxCol - *cursorMinColPtr;
+    *maxInputLengthPtr = connected ? MAX_MESSAGE_LENGTH : USERNAME_BYTES;
+    gap_buffer_reset(gapBuffer);
+}
+
+void handle_user_input(UIContext *uiContext, NetworkContext *networkContext, AppContext *appContext) {
+    /* Unpack UI context */
+    WINDOW *inputWindow = uiContext->inputWindow;
+    WINDOW *chatWindow = uiContext->chatWindow;
+    int *cursorPosPtr = uiContext->cursorPosPtr;
+    int *inputIndexPtr = uiContext->inputIndexPtr;
+    int cursorMinCol = *(uiContext->cursorMinColPtr);
+    int cursorMaxCol = uiContext->cursorMaxCol;
+    int inputLength = *(uiContext->inputLengthPtr);
+    int maxInputLength = *(uiContext->maxInputLengthPtr);
+
+    // Unpack app context
+    GapBuffer *gapBuffer = appContext->gapBuffer;
+    bool *exitProgramPtr = appContext->exitProgramPtr;
+
+    int charsInLeft = gapBuffer->gapStart;
+    int charsInRight = gapBuffer->size - gapBuffer->gapEnd - 1;
+
+    // Get and sanitize input from user
+    wmove(inputWindow, CURSOR_START_ROW, *cursorPosPtr);
+    int c = wgetch(inputWindow);
+    switch(c) {
+        // Handle user pressing the backspace
+        case KEY_BACKSPACE:
+            if(*cursorPosPtr == cursorMinCol) {
+                break;
+            }
+
+            gap_buffer_delete(gapBuffer);
+            if(gapBuffer->strLen >= inputLength && *inputIndexPtr > 0) {
+                (*inputIndexPtr)--;
+            } else {
+                (*cursorPosPtr)--;
+            }
+            break;
+
+
+        // Handle user pressing the left arrow key
+        case KEY_LEFT:
+            if(*cursorPosPtr == cursorMinCol && *inputIndexPtr == 0) {
+                break;
+            }
+
+            if(*cursorPosPtr == cursorMinCol) {
+                (*inputIndexPtr)--;
+            } else {
+                (*cursorPosPtr)--;
+            }
+            move_gap_left(gapBuffer);
+            break;
+
+        // Handle user pressing the right arrow key
+        case KEY_RIGHT:
+            if(*cursorPosPtr - cursorMinCol == charsInLeft + charsInRight) {
+                break;
+            } 
+
+            if(*cursorPosPtr == cursorMaxCol && gapBuffer->strLen - *inputIndexPtr > inputLength) {
+                (*inputIndexPtr)++;
+            } else if(*cursorPosPtr < cursorMaxCol) {
+                (*cursorPosPtr)++;
+            }
+            move_gap_right(gapBuffer);
+            break;
+
+        // Handle user pressing enter
+        case ENTER_KEY_CODE:
+            if(gapBuffer->strLen == 0) {
+                break;
+            }
+
+            handle_enter_pressed(uiContext, networkContext, appContext);
+            break;
+
+        // Handle user pressing escape key 
+        case ESC_KEY_CODE:
+            *exitProgramPtr = true;
+            break;
+
+        // Handle user enter text
+        default:
+            if(isprint(c) == 0) {
+                break;
+            }
+
+            if(charsInLeft + charsInRight == maxInputLength) {
+                break;
+            }
+
+            gap_buffer_insert(gapBuffer, (char)c);
+            if(*cursorPosPtr == cursorMaxCol) {
+                (*inputIndexPtr)++;
+            } else {
+                (*cursorPosPtr)++;
+            }
+            break;
+    }
 }
 
 int main(void) {
@@ -385,74 +390,63 @@ int main(void) {
     GapBuffer *gapBuffer = gap_buffer_init();
 
     // Initialize input buffer variables
-    int cursorMinCol = CURSOR_START_COL;
+    int cursorMinCol = CURSOR_START_COL_USERNAME;
     int cursorMaxCol = width - 2;
     int cursorPos = cursorMinCol;
     int inputIndex = 0;
     int inputLength = cursorMaxCol - cursorMinCol;
+    int maxInputLength = USERNAME_BYTES;
 
     // Boolean for whether or not we've connected to server
     bool connected = false;
-
     // Boolean for whether or not we should exit
     bool exitProgram = false;
+    // Sequence number for packet retransmission
+    uint16_t currSequenceNum = 0;
 
-    // Pack argument that gets passed to handle_user_input
-    UserInArg *userArg = calloc(1, sizeof(UserInArg));
-    userArg->socketFD = socketFD;
-    userArg->serverAddr = &serverAddr;
-    userArg->inputWindow = inputWindow;
-    userArg->chatWindow = chatWindow;
-    userArg->chatList = chatList;
-    userArg->gapBuffer = gapBuffer;
-    userArg->cursorPosPtr = &cursorPos;
-    userArg->inputIndexPtr = &inputIndex;
-    userArg->cursorMinCol = cursorMinCol;
-    userArg->cursorMaxCol = cursorMaxCol;
-    userArg->inputLength = inputLength;
-    userArg->width = width;
-    userArg->connected = &connected;
-    userArg->exitProgramPtr = &exitProgram;
 
-    // Pack argument that gets passed to handle_server_input
-    ServerInArg *serverArg = calloc(1, sizeof(ServerInArg));
-    serverArg->socketFD = socketFD;
-    serverArg->inputWindow = inputWindow;
-    serverArg->chatWindow = chatWindow;
-    serverArg->chatList = chatList;
-    serverArg->gapBuffer = gapBuffer;
-    serverArg->cursorPosPtr = &cursorPos;
-    serverArg->inputIndexPtr = &inputIndex;
-    serverArg->inputLength = inputLength;
-    serverArg->connected = &connected;
-    serverArg->exitProgramPtr = &exitProgram;
+    UIContext *uiContext = calloc(1, sizeof(UIContext));
+    uiContext->inputWindow = inputWindow;
+    uiContext->chatWindow = chatWindow;
+    uiContext->cursorPosPtr = &cursorPos;
+    uiContext->inputIndexPtr = &inputIndex;
+    uiContext->cursorMinColPtr = &cursorMinCol;
+    uiContext->cursorMaxCol = cursorMaxCol;
+    uiContext->inputLengthPtr = &inputLength;
+    uiContext->maxInputLengthPtr = &maxInputLength;
 
-    // Initialize pthreads for handling user and server input
-    pthread_t userInThread, serverInThread;
-    if(pthread_create(&userInThread, NULL, handle_user_input, (void *)userArg) != 0) {
-        perror("Error creating pthread for handling user input");
-        return 1;
+    NetworkContext *networkContext = calloc(1, sizeof(NetworkContext));
+    networkContext->socketFD = socketFD;
+    networkContext->serverAddr = &serverAddr;
+    networkContext->connectedPtr = &connected;
+
+    AppContext *appContext = calloc(1, sizeof(AppContext));
+    appContext->chatList = chatList;
+    appContext->gapBuffer = gapBuffer;
+    appContext->exitProgramPtr = &exitProgram;
+
+    while(!exitProgram) {
+        /* Get input from user */
+        handle_user_input(uiContext, networkContext, appContext);
+
+        /* Handle input from server */
+
+        /* Retransmit unacknowledged packets */
+        // retransmit_unacked_packets();
+
+        update_tui(uiContext, networkContext, appContext);
     }
 
-    if(pthread_create(&serverInThread, NULL, handle_server_input, (void *)serverArg) != 0) {
-        perror("Error creating pthrad for handling server input");
-        return 1;
-    }
-
-    pthread_join(userInThread, NULL);
-    pthread_join(serverInThread, NULL);
-
-    // Clean up and free everything before exiting
-    pthread_mutex_destroy(&tuiMutex);
     delwin(inputWindow);
     delwin(chatWindow);
     endwin();
 
     list_free(chatList);
     gap_buffer_free(gapBuffer);
-
-    free(userArg);
-    free(serverArg);
+    free(appContext->username);
+    free(uiContext);
+    free(networkContext);
+    free(appContext);
 
     return 0;
 }

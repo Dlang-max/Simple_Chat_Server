@@ -1,4 +1,5 @@
 #include "./headers/server.h"
+#include <sys/types.h>
 
 ClientList *client_list_init() {
     ClientListNode *clients = calloc(CLIENT_LIST_SIZE, sizeof(ClientListNode));
@@ -48,10 +49,11 @@ void update_clients(ClientList *clientList, struct sockaddr_in clientAddr) {
     client_list_insert(clientList, clientAddr);
 }
 
-void send_message_to_clients(int socketFD, ClientList *clientList, char *packet, int payloadLength) {
+void send_message_to_clients(int socketFD, ClientList *clientList, char *packet) {
+    int payloadLength = (packet[1] << 8) | packet[2];
     for(int i = 0; i < clientList->size; i++) {
         struct sockaddr_in clientAddr = clientList->clients[i].clientAddr;
-        sendto(socketFD, packet, PACKET_HEADER_BYTES + payloadLength, 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
+        sendto(socketFD, packet, 1 + 2 + USERNAME_BYTES + payloadLength, 0, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
     }
 }
 
@@ -59,21 +61,45 @@ int min(int a, int b) {
     return a < b ? a : b;
 }
 
-char *parse_message_packet(char *packet, int payloadLength) {
-    int messageLength = min(MAX_MESSAGE_LENGTH, payloadLength);
-    char *message = calloc(messageLength + 1, sizeof(char));
-    message[messageLength] = '\0';
+int get_username_length(uint8_t *packet) {
+    int length = 0;
+    for(int i = 0; i < USERNAME_BYTES; i++) {
+        if(packet[i] == '\0') {
+            break;
+        }
 
-    memcpy(message, packet + PACKET_HEADER_BYTES, messageLength);
+        length++;
+    }
+
+    return length;
+}
+
+char *parse_message_packet(uint8_t *packet) {
+    int payloadLength = (packet[1] << 8) | packet[2];
+    int usernameLength = get_username_length(packet + MESSAGE_PACKET_HEADER_BYTES); 
+    int messageLength = USERNAME_PREFIX_CHARS + usernameLength + USERNAME_SUFFIX_CHARS + payloadLength;
+    char *message = calloc(messageLength + 1, sizeof(char));
+    message[messageLength + 1] = '\0';
+
+    message[0] = '>';
+    message[1] = ' ';
+    memcpy(message + 2, packet + MESSAGE_PACKET_HEADER_BYTES, usernameLength);
+    message[USERNAME_PREFIX_CHARS + usernameLength] = ' ';
+    message[USERNAME_PREFIX_CHARS + usernameLength + 1] = '-';
+    message[USERNAME_PREFIX_CHARS + usernameLength + 2] = '-';
+    message[USERNAME_PREFIX_CHARS + usernameLength + 3] = '-';
+    message[USERNAME_PREFIX_CHARS + usernameLength + 4] = ' ';
+    memcpy(message + USERNAME_PREFIX_CHARS + usernameLength + USERNAME_SUFFIX_CHARS, packet + MESSAGE_PACKET_HEADER_BYTES + USERNAME_BYTES, payloadLength);
 
     return message;
 }
 
-char *parse_received_packet(char *packet, int payloadLength) {
-    int packetType = (packet[0] & UNPACK_PACKET_TYPE_MASK) >> 4;
+
+char *parse_received_packet(char *packet) {
+    int packetType = packet[0];
     switch(packetType) {
         case MESSAGE_PACKET_ID:
-            char *message = parse_message_packet(packet, payloadLength);
+            char *message = parse_message_packet(packet);
             return message;
             break;
         default:
@@ -112,19 +138,18 @@ int main(void) {
         // Receive UDP packets from clients
         recvfrom(socketFD, packet, MAX_PACKET_LENGTH, 0, (struct sockaddr *)&clientAddr, &clientAddrSize);
 
-        int payloadLength = (packet[0] & UNPACK_PAYLOAD_LEN_UPPER_NIBBLE_MASK) << 8;
-        payloadLength |= packet[1];
-        char *message = parse_received_packet(packet, payloadLength);
+        char *message = parse_received_packet(packet);
 
         char clientIP[INET_ADDRSTRLEN];
         clientIP[INET_ADDRSTRLEN - 1] = '\0';
         inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
 
-        printf("%s:%d > %s\n", clientIP, ntohs(clientAddr.sin_port), message);
+        printf("%s:%d %s\n", clientIP, ntohs(clientAddr.sin_port), message);
+        free(message);
         update_clients(clientList, clientAddr);
 
         // Send data to clients
-        send_message_to_clients(socketFD, clientList, packet, payloadLength);
+        send_message_to_clients(socketFD, clientList, packet);
     }
 
     free(clientList);

@@ -13,44 +13,6 @@
 #include <bits/pthreadtypes.h>
 #include <ncurses.h>
 
-/*
- * Connect packet structure
- *
- * |0001|____________________|
- *   |            |
- *   |            V
- *   V            20 bits for username
- *   4 bits for packet type
- */
-
-/*
- * Disconnect packet structure
- *
- * |0010|
- *   |
- *   V
- *   4 bits for packet type
- */
-
-/*
- * Acknowledgement packet structure
- *
- * |0011|
- *   |
- *   V
- *   4 bits for packet type
- */
-
-/*
- * Message packet structure
- *
- * |0100|____________|________ .... _____|
- *   |        |             V
- *   |        V             payload data
- *   V        12 bits for payload length
- *   4 bits for packet type
- */
-
 /* Established constants */
 #define BITS_IN_BYTE 8
 
@@ -72,6 +34,13 @@
 #define MAX_PACKET_LENGTH 256
 #define PACKET_HEADER_BYTES (PACKET_TYPE_BITS + PACKET_SEQ_BITS + BITS_IN_BYTE - 1) / BITS_IN_BYTE
 #define MAX_MESSAGE_PACKET_LENGTH (PACKET_HEADER_BYTES + ((PAYLOAD_LEN_BITS) / BITS_IN_BYTE) + MAX_MESSAGE_LENGTH)
+
+/* Packet constants */
+#define MESSAGE_PACKET_HEADER_BYTES 3
+
+/* Message display constants */
+#define USERNAME_PREFIX_CHARS 2
+#define USERNAME_SUFFIX_CHARS 5
 
 /* Unpacking constants */
 #define UNPACK_PACKET_TYPE_MASK 0xF0
