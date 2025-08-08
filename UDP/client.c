@@ -1,6 +1,13 @@
 #include "./headers/client.h"
+#include <netinet/in.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/epoll.h>
+#include <unistd.h>
+
+#define MAX_EVENTS 2
 
 int min(int a, int b) {
     return a < b ? a : b;
@@ -27,7 +34,7 @@ void update_tui(UIContext *uiContext, NetworkContext *networkContext, AppContext
     wmove(chatWindow, 1, 0);
     ListNode *curr = chatList->head->next;
     while(curr != chatList->tail) {
-        wprintw(chatWindow, " > ip:time --- %s\n", curr->message);
+        wprintw(chatWindow, " %s\n", curr->message);
         curr = curr->next;
     }
     box(chatWindow, 0, 0);
@@ -46,6 +53,8 @@ void update_tui(UIContext *uiContext, NetworkContext *networkContext, AppContext
     wmove(inputWindow, CURSOR_START_ROW, *cursorPosPtr);
     box(inputWindow, 0, 0);
     wrefresh(inputWindow);
+
+    free(input);
 }
 
 
@@ -86,7 +95,7 @@ char *parse_message_packet(uint8_t *packet) {
     int usernameLength = strlen((char *)(packet + MESSAGE_PACKET_HEADER_BYTES));
     int messageLength = USERNAME_PREFIX_CHARS + usernameLength + USERNAME_SUFFIX_CHARS + payloadLength;
     char *message = calloc(messageLength + 1, sizeof(char));
-    message[messageLength + 1] = '\0';
+    message[messageLength] = '\0';
 
     message[0] = '>';
     message[1] = ' ';
@@ -134,15 +143,13 @@ void send_message_packet(int socketFD, struct sockaddr_in *serverAddr, AppContex
 
 
 char *parse_received_packet(char *packet) {
-    int packetType = (packet[0] & UNPACK_PACKET_TYPE_MASK) >> 4;
+    int packetType = packet[0];
     switch(packetType) {
         case DISCONNECT_PACKET_ID:
             break;
 
         case ACK_PACKET_ID:
             break;
-
-
 
         case MESSAGE_PACKET_ID:
             char *message = parse_message_packet(packet);
@@ -155,46 +162,22 @@ char *parse_received_packet(char *packet) {
     return NULL;
 }
 
-void *handle_packet_retransmission(void *arg) {
-    
-}
-/*
-void *handle_server_input(void *arg) {
-    // Unpack argument passed to function
-    ServerInArg *serverArg = (ServerInArg *)arg;
-    int socketFD = serverArg->socketFD;
-    WINDOW *inputWindow = serverArg->inputWindow;
-    WINDOW *chatWindow = serverArg->chatWindow;
-    List *chatList = serverArg->chatList;
-    GapBuffer *gapBuffer = serverArg->gapBuffer;
-    int *cursorPosPtr = serverArg->cursorPosPtr;
-    int *inputIndexPtr = serverArg->cursorPosPtr;
-    int inputLength = serverArg->inputLength;
-    bool *connected = serverArg->connected;
-    bool *exitProgramPtr = serverArg->exitProgramPtr;
 
+void handle_server_input(NetworkContext *networkContext, AppContext *appContext) {
+    int socketFD = networkContext->socketFD;
     struct sockaddr_in recvAddr;
-    socklen_t recvSize = sizeof(recvAddr);
+    socklen_t recvAddrSize = sizeof(recvAddr);
 
-    while(true) {
-        if(*exitProgramPtr) {
-            return NULL;
-        }
+    char packet[MAX_MESSAGE_SIZE + 1];
+    packet[MAX_MESSAGE_SIZE] = '\0';
 
-        char packet[MAX_PACKET_LENGTH];
-        // Block until the server sends us a message
-        // Going to have to set this to non-blocking so we can gracefully exit
-        recvfrom(socketFD, packet, MAX_PACKET_LENGTH, 0, (struct sockaddr *)&recvAddr, &recvSize);
+    recvfrom(socketFD, packet, MAX_MESSAGE_LENGTH, 0, (struct sockaddr *)&recvAddr, &recvAddrSize);
 
-        char *message = parse_received_packet(packet);
-        if(message != NULL) {
-            list_add(chatList, message);
-        }
-
-        update_tui(inputWindow, chatWindow, chatList, gapBuffer, cursorPosPtr, inputIndexPtr, inputLength, connected);
+    char *message = parse_received_packet(packet);
+    if(packet != NULL) {
+        list_add(appContext->chatList, message);
     }
 }
-*/
 
 // Going to update this to handle packet types and lengths
 void send_packet_to_server(int socketFD, struct sockaddr_in *serverAddr, uint8_t packetType, AppContext *appContext) {
@@ -372,7 +355,7 @@ int main(void) {
 
 
     // Get file descriptor for socket
-    int socketFD = socket(AF_INET, SOCK_DGRAM, 0);
+    int socketFD = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
     if(socketFD == -1) {
         perror("Error getting socket file descriptor");
         return 1;
@@ -382,6 +365,30 @@ int main(void) {
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(PORT);
     inet_pton(AF_INET, SERVER_ADDR, &(serverAddr.sin_addr));
+
+    // Initialize epoll
+    struct epoll_event eventSTDIN, eventSock, events[MAX_EVENTS];
+    int epollFD = epoll_create1(0);
+    if(epollFD == -1) {
+        perror("Error getting epoll file descriptor");
+        return 1;
+    }
+
+    // Add stdin to epoll events
+    eventSTDIN.events = EPOLLIN;
+    eventSTDIN.data.fd = STDIN_FILENO;
+    if(epoll_ctl(epollFD, EPOLL_CTL_ADD, STDIN_FILENO, &eventSTDIN) == -1) {
+        perror("Error adding stdin file descriptor to events");
+        return 1;
+    }
+
+    // Add socket to epoll events
+    eventSock.events = EPOLLIN;
+    eventSock.data.fd = socketFD;
+    if(epoll_ctl(epollFD, EPOLL_CTL_ADD, socketFD, &eventSock) == -1) {
+        perror("Error adding socket file descriptor to events");
+        return 1;
+    }
 
     // Initialize chat list
     List *chatList = list_init();
@@ -426,13 +433,18 @@ int main(void) {
     appContext->exitProgramPtr = &exitProgram;
 
     while(!exitProgram) {
-        /* Get input from user */
-        handle_user_input(uiContext, networkContext, appContext);
 
-        /* Handle input from server */
-
-        /* Retransmit unacknowledged packets */
-        // retransmit_unacked_packets();
+        int numReadyToRead = epoll_wait(epollFD, events, MAX_EVENTS, 10);
+        for(int i = 0; i < numReadyToRead; i++) {
+            int readableFD = events[i].data.fd;
+            if(readableFD == STDIN_FILENO) {
+                /* Get input from user */
+                handle_user_input(uiContext, networkContext, appContext);
+            } else if(readableFD == socketFD) {
+                /* Get input from server */
+                handle_server_input(networkContext, appContext);
+            }
+        }
 
         update_tui(uiContext, networkContext, appContext);
     }
@@ -443,9 +455,10 @@ int main(void) {
 
     list_free(chatList);
     gap_buffer_free(gapBuffer);
-    free(appContext->username);
+
     free(uiContext);
     free(networkContext);
+    free(appContext->username);
     free(appContext);
 
     return 0;

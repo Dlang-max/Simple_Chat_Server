@@ -79,7 +79,7 @@ char *parse_message_packet(uint8_t *packet) {
     int usernameLength = get_username_length(packet + MESSAGE_PACKET_HEADER_BYTES); 
     int messageLength = USERNAME_PREFIX_CHARS + usernameLength + USERNAME_SUFFIX_CHARS + payloadLength;
     char *message = calloc(messageLength + 1, sizeof(char));
-    message[messageLength + 1] = '\0';
+    message[messageLength] = '\0';
 
     message[0] = '>';
     message[1] = ' ';
